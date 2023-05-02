@@ -6,10 +6,6 @@ import (
 	"github.com/dominikbraun/graph/draw"
 	"github.com/fogleman/ln/ln"
 	_"github.com/fogleman/gg"
-	"gonum.org/v1/plot"
-	"gonum.org/v1/plot/plotter"
-	"gonum.org/v1/plot/plotutil"
-	"gonum.org/v1/plot/vg"
 	"math"
 	"os"
 	"strings"
@@ -138,7 +134,7 @@ func getAdjacencyV(he map[HalfEdge]int) map[int][]int {
 	return ret
 }
 
-func findNet(adj map[int][]int) []graph.Edge[int] {
+func findNet(adj map[int][]int, f string) []graph.Edge[int] {
 	g := graph.New(graph.IntHash)
 	// find dual
 	for k, v := range adj {
@@ -149,44 +145,19 @@ func findNet(adj map[int][]int) []graph.Edge[int] {
 		}
 	}
 
-	gOut, _ := os.Create("./test.gv")
+	gF := f + "-dual.gv"
+	gOut, _ := os.Create(gF)
 	_ = draw.DOT(g, gOut)
 	//find mst
+	mstF := f + "-mst.gv"
 	mst, err := graph.MinimumSpanningTree(g)
 	if err != nil {
 		panic(err)
 	} else {
-		mstOut, _ := os.Create("./mst.gv")
+		mstOut, _ := os.Create(mstF)
 		_ = draw.DOT(mst, mstOut)
 		mstEdges, _ := mst.Edges()
 		return mstEdges
-	}
-}
-
-func plotAdj(adjV map[int][]int, trByV map[int]Tr, f string) {
-	p := plot.New()
-
-	for k, v := range adjV {
-		klen := 1 + len(v)
-		kpts := make(plotter.XYs, klen)
-		kTr := trByV[k]
-		ck := (kTr.V1.Add(kTr.V2)).Add(kTr.V3).DivScalar(3)
-		kpts[0].X = ck.X
-		kpts[0].Y = ck.Y
-		for i, trV := range v {
-			tr := trByV[trV]
-			ctr := (tr.V1.Add(tr.V2)).Add(tr.V3).DivScalar(3)
-			kpts[i+1].X = ctr.X
-			kpts[i+1].Y = ctr.Y
-		}
-		err := plotutil.AddLinePoints(p, kpts)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	if err := p.Save(4*vg.Inch, 4*vg.Inch, f); err != nil {
-		panic(err)
 	}
 }
 
@@ -270,12 +241,8 @@ func main() {
 		fmt.Println()
 	}
 
-	/*
-	adjF := "output/" + tsF + "-adj.png"
-	plotAdj(adjV, trByV, adjF)
-	*/
-
-	mst := findNet(adjV)
+	adjF := "output/" + tsF
+	mst := findNet(adjV, adjF)
 	fmt.Println(mst)
 
 	fmt.Println(halfedges)
