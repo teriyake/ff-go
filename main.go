@@ -35,6 +35,10 @@ func getNormal(v1, v2, v3 ln.Vector) ln.Vector {
 	return vN
 }
 
+func unitCross(a, b ln.Vector) ln.Vector {
+	return a.Cross(b).Div((a.Cross(b)).Normalize())
+}
+
 func removeDups(s []int) []int {
 	keys := make(map[int]bool)
 	ret := []int{}
@@ -113,6 +117,16 @@ func getAnglesTr(tr *ln.Triangle) []float64 {
 	angles := []float64{angleA, angleB, angleC}
 
 	return angles
+}
+
+func rotateTr(tr Tr, refN ln.Vector, rAngle float64) *ln.Triangle {
+	rAxis := unitCross(tr.Normal, refN)
+	rMat := ln.Rotate(rAxis, rAngle)
+	// maybe dot?
+	v1 := rMat.MulPosition(tr.V1)
+	v2 := rMat.MulPosition(tr.V2)
+	v3 := rMat.MulPosition(tr.V3)
+	return ln.NewTriangle(v1, v2, v3)
 }
 
 func getAdjacencyV(he map[HalfEdge]int) map[int][]int {
@@ -205,22 +219,12 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, f string) {
 
 			tr1A := getAngle(refP, tr1.Normal)
 			//fmt.Printf("%v\t%v\n", tr1A, tr2A)
-			tr1V1 := ln.Rotate(tr1.V1, tr1A).MulPosition(tr1.V1)
-			tr1V2 := ln.Rotate(tr1.V2, tr1A).MulPosition(tr1.V2)
-			tr1V3 := ln.Rotate(tr1.V3, tr1A).MulPosition(tr1.V3)
-			tr1N = ln.NewTriangle(tr1V1, tr1V2, tr1V3)
-			fmt.Println(tr1A)
-			fmt.Println(tr1N)
+			tr1N = rotateTr(tr1, refP, tr1A)
 		}
 		if tr2.Normal != refP {
 
 			tr2A := getAngle(refP, tr2.Normal)
-			tr2V1 := ln.Rotate(tr2.V1, tr2A).MulPosition(tr2.V1)
-			tr2V2 := ln.Rotate(tr2.V2, tr2A).MulPosition(tr2.V2)
-			tr2V3 := ln.Rotate(tr2.V3, tr2A).MulPosition(tr2.V3)
-			tr2N = ln.NewTriangle(tr2V1, tr2V2, tr2V3)
-			fmt.Println(tr2A)
-			fmt.Println(tr2N)
+			tr2N = rotateTr(tr2, refP, tr2A)
 		}
 		scene.Add(tr1N)
 		scene.Add(tr2N)
