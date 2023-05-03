@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"github.com/dominikbraun/graph"
 	"github.com/dominikbraun/graph/draw"
+	_ "github.com/fogleman/gg"
 	"github.com/fogleman/ln/ln"
-	_"github.com/fogleman/gg"
 	"math"
 	"os"
 	"strings"
@@ -13,9 +13,10 @@ import (
 )
 
 type Tr struct {
-	V1 ln.Vector
-	V2 ln.Vector
-	V3 ln.Vector
+	V1     ln.Vector
+	V2     ln.Vector
+	V3     ln.Vector
+	Normal ln.Vector
 }
 
 type HalfEdge struct {
@@ -25,6 +26,13 @@ type HalfEdge struct {
 
 func printTr(tr ln.Triangle) string {
 	return fmt.Sprintf("%v, %v, %v", tr.V1, tr.V2, tr.V3)
+}
+
+func getNormal(v1, v2, v3 ln.Vector) ln.Vector {
+	vA := v2.Add(v1.MulScalar(-1))
+	vB := v3.Add(v1.MulScalar(-1))
+	vN := vA.Cross(vB)
+	return vN
 }
 
 func removeDups(s []int) []int {
@@ -49,7 +57,8 @@ func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[
 	v := 0
 	trV := 0
 	for _, tr := range m.Triangles {
-		trS := Tr{tr.V1, tr.V2, tr.V3}
+		trSN := getNormal(tr.V1, tr.V2, tr.V3)
+		trS := Tr{tr.V1, tr.V2, tr.V3, trSN}
 		triangles = append(triangles, trS)
 		//get triangle vertex
 		if _, ok := trVertices[trS]; !ok {
@@ -84,7 +93,11 @@ func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[
 	return triangles, vertices, trVertices, trByVertex, halfedges
 }
 
-func getAngles(tr *ln.Triangle) []float64 {
+func getAngle(v1, v2 ln.Vector) float64 {
+	return math.Acos(v1.Normalize().Dot(v2.Normalize())) * 180 / math.Pi
+}
+
+func getAnglesTr(tr *ln.Triangle) []float64 {
 	AB := tr.V2.Add(tr.V1.MulScalar(-1))
 	AC := tr.V3.Add(tr.V1.MulScalar(-1))
 	angleA := math.Acos(AB.Dot(AC)/(AB.Length()*AC.Length())) * 180 / math.Pi
@@ -161,37 +174,66 @@ func findNet(adj map[int][]int, f string) []graph.Edge[int] {
 	}
 }
 
-/*
 func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, f string) {
+	scene := ln.Scene{}
 
-	dc := gg.NewContext(1000, 1000)
-    dc.SetRGB(0, 0, 0)
-	dc.Translate(500, 500)
-	rF := 1000 * 0.5
+	//refP := ln.Vector{0,0,1}
+
+	refT := vTr[mst[0].Source]
+	refP := refT.Normal
+	fmt.Println(refP)
+
 	for _, e := range mst {
 		fmt.Printf("%v--%v\n", e.Source, e.Target)
 		tr1 := vTr[e.Source]
+		/*
+			v1Tr1 := tr1.V1.MulScalar(rF)
+			v2Tr1 := tr1.V2.MulScalar(rF)
+			v3Tr1 := tr1.V3.MulScalar(rF)
+		*/
 		tr2 := vTr[e.Target]
-		//draw tr1
-		dc.DrawLine(tr1.V1.X*resize, tr1.V1.Y*resize, tr1.V2.X*resize, tr1.V2.Y*resize)
-		dc.Stroke()
-		dc.DrawLine(tr1.V2.X*resize, tr1.V2.Y*resize, tr1.V3.X*resize, tr1.V3.Y*resize)
-		dc.Stroke()
-		dc.DrawLine(tr1.V3.X*resize, tr1.V3.Y*resize, tr1.V1.X*resize, tr1.V1.Y*resize)
-		dc.Stroke()
-		//draw tr2
-		dc.DrawLine(tr2.V1.X*resize, tr2.V1.Y*resize, tr2.V2.X*resize, tr2.V2.Y*resize)
-		dc.Stroke()
-		dc.DrawLine(tr2.V2.X*resize, tr2.V2.Y*resize, tr2.V3.X*resize, tr2.V3.Y*resize)
-		dc.Stroke()
-		dc.DrawLine(tr2.V3.X*resize, tr2.V3.Y*resize, tr2.V1.X*resize, tr2.V1.Y*resize)
-		dc.Stroke()
+		/*
+			v1Tr2 := tr2.V1.MulScalar(rF)
+			v2Tr2 := tr2.V2.MulScalar(rF)
+			v3Tr2 := tr2.V3.MulScalar(rF)
+		*/
+
+		// draw
+		tr1N := ln.NewTriangle(tr1.V1, tr1.V2, tr1.V3)
+		tr2N := ln.NewTriangle(tr2.V1, tr2.V2, tr2.V3)
+		if (refT != tr1) || (tr1.Normal != refP) {
+
+			tr1A := getAngle(refP, tr1.Normal)
+			//fmt.Printf("%v\t%v\n", tr1A, tr2A)
+			tr1V1 := ln.Rotate(tr1.V1, tr1A).MulPosition(tr1.V1)
+			tr1V2 := ln.Rotate(tr1.V2, tr1A).MulPosition(tr1.V2)
+			tr1V3 := ln.Rotate(tr1.V3, tr1A).MulPosition(tr1.V3)
+			tr1N = ln.NewTriangle(tr1V1, tr1V2, tr1V3)
+			fmt.Println(tr1A)
+			fmt.Println(tr1N)
+		}
+		if tr2.Normal != refP {
+
+			tr2A := getAngle(refP, tr2.Normal)
+			tr2V1 := ln.Rotate(tr2.V1, tr2A).MulPosition(tr2.V1)
+			tr2V2 := ln.Rotate(tr2.V2, tr2A).MulPosition(tr2.V2)
+			tr2V3 := ln.Rotate(tr2.V3, tr2A).MulPosition(tr2.V3)
+			tr2N = ln.NewTriangle(tr2V1, tr2V2, tr2V3)
+			fmt.Println(tr2A)
+			fmt.Println(tr2N)
+		}
+		scene.Add(tr1N)
+		scene.Add(tr2N)
+
 	}
-
-
-    dc.SavePNG(f)
+	eye := ln.Vector{2, 3, 1}
+	center := ln.Vector{0, 0, 0}
+	up := refP
+	width := 1024.0
+	height := 1024.0
+	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
+	paths.WriteToPNG(f, width, height)
 }
-*/
 
 func main() {
 	scene := ln.Scene{}
@@ -245,9 +287,9 @@ func main() {
 	mst := findNet(adjV, adjF)
 	fmt.Println(mst)
 
-	fmt.Println(halfedges)
-	/*
+	//fmt.Println(halfedges)
+
 	creaseF := "output/" + tsF + "-crease.png"
 	drawCreasePattern(mst, trByV, creaseF)
-	*/
+
 }
