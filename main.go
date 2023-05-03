@@ -51,12 +51,13 @@ func removeDups(s []int) []int {
 	return ret
 }
 
-func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[HalfEdge]int) {
+func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[HalfEdge]int, map[int][]HalfEdge) {
 	var triangles []Tr
 	var vertices = make(map[ln.Vector]int)
 	var trVertices = make(map[Tr]int)
 	var trByVertex = make(map[int]Tr)
 	var halfedges = make(map[HalfEdge]int)
+	var heByFace = make(map[int][]HalfEdge)
 
 	v := 0
 	trV := 0
@@ -92,9 +93,10 @@ func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[
 		halfedges[he1] = trV
 		halfedges[he2] = trV
 		halfedges[he3] = trV
+		heByFace[trV] = append(heByFace[trV], he1, he2, he3)
 		trV++
 	}
-	return triangles, vertices, trVertices, trByVertex, halfedges
+	return triangles, vertices, trVertices, trByVertex, halfedges, heByFace
 }
 
 func getAngle(v1, v2 ln.Vector) float64 {
@@ -119,8 +121,8 @@ func getAnglesTr(tr *ln.Triangle) []float64 {
 	return angles
 }
 
-func rotateTr(tr Tr, refN ln.Vector, rAngle float64) *ln.Triangle {
-	rAxis := unitCross(tr.Normal, refN)
+func rotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
+	rAxis := tr.Normal.Normalize().Cross(ref.Normalize())
 	rMat := ln.Rotate(rAxis, rAngle)
 	// maybe dot?
 	v1 := rMat.MulPosition(tr.V1)
@@ -188,7 +190,7 @@ func findNet(adj map[int][]int, f string) []graph.Edge[int] {
 	}
 }
 
-func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, f string) {
+func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
 	scene := ln.Scene{}
 
 	//refP := ln.Vector{0,0,1}
@@ -197,28 +199,43 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, f string) {
 	refP := refT.Normal
 	fmt.Println(refP)
 
+	//trPrv := ln.NewTriangle(refT.V1, refT.V2, refT.V3)
 	for _, e := range mst {
 		fmt.Printf("%v--%v\n", e.Source, e.Target)
 		tr1 := vTr[e.Source]
-		/*
-			v1Tr1 := tr1.V1.MulScalar(rF)
-			v2Tr1 := tr1.V2.MulScalar(rF)
-			v3Tr1 := tr1.V3.MulScalar(rF)
-		*/
 		tr2 := vTr[e.Target]
-		/*
-			v1Tr2 := tr2.V1.MulScalar(rF)
-			v2Tr2 := tr2.V2.MulScalar(rF)
-			v3Tr2 := tr2.V3.MulScalar(rF)
-		*/
-
+		trs := adj[e.Target]
+		for _, tr := range trs {
+			if vTr[tr] != tr1 {
+				// unfold
+				fmt.Println(tr)
+			}
+		}
 		// draw
+		// rotating one changes successive trs... maybe recursion??
+		// or maybe check adjacency & cut between f1 & f2 is f1 in MST & f2 not? then unfold
 		tr1N := ln.NewTriangle(tr1.V1, tr1.V2, tr1.V3)
 		tr2N := ln.NewTriangle(tr2.V1, tr2.V2, tr2.V3)
+		heTr1 := he[e.Source]
+		heTr2 := he[e.Target]
+		var sharedE HalfEdge
+		intersectM := make(map[HalfEdge]bool)
+		for _, he := range heTr1 {
+			intersectM[he] = true
+		}
+		for _, he := range heTr2 {
+			if _, ok := intersectM[he]; ok {
+				sharedE = he
+			}
+		}
+		fmt.Println(sharedE)
+
+		// then use shared E as rAxis
+		// diff rAxis for diff tr? direction... 
+		
 		if (refT != tr1) || (tr1.Normal != refP) {
 
 			tr1A := getAngle(refP, tr1.Normal)
-			//fmt.Printf("%v\t%v\n", tr1A, tr2A)
 			tr1N = rotateTr(tr1, refP, tr1A)
 		}
 		if tr2.Normal != refP {
@@ -226,6 +243,7 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, f string) {
 			tr2A := getAngle(refP, tr2.Normal)
 			tr2N = rotateTr(tr2, refP, tr2A)
 		}
+
 		scene.Add(tr1N)
 		scene.Add(tr2N)
 
@@ -269,7 +287,7 @@ func main() {
 	meshF := "output/" + tsF + "-mesh.png"
 	paths.WriteToPNG(meshF, width, height)
 
-	triangles, vertices, trVertices, trByV, halfedges := parseMesh(*mesh)
+	triangles, vertices, trVertices, trByV, halfedges, heByF := parseMesh(*mesh)
 	fmt.Println(len(triangles))
 	fmt.Println(len(vertices))
 	fmt.Println(len(trVertices))
@@ -277,9 +295,9 @@ func main() {
 	fmt.Println(len(mesh.Triangles))
 	fmt.Println(len(halfedges))
 
-	adjV := getAdjacencyV(halfedges)
-	fmt.Println(len(adjV))
-	for k, v := range adjV {
+	adjFaces := getAdjacencyV(halfedges)
+	fmt.Println(len(adjFaces))
+	for k, v := range adjFaces {
 		fmt.Printf("%v", k)
 		for _, ele := range v {
 			fmt.Printf("--%v", ele)
@@ -288,12 +306,13 @@ func main() {
 	}
 
 	adjF := "output/" + tsF
-	mst := findNet(adjV, adjF)
+	mst := findNet(adjFaces, adjF)
 	fmt.Println(mst)
 
 	//fmt.Println(halfedges)
 
 	creaseF := "output/" + tsF + "-crease.png"
-	drawCreasePattern(mst, trByV, creaseF)
+	drawCreasePattern(mst, trByV, adjFaces, heByF, creaseF)
+
 
 }
