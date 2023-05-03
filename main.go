@@ -131,6 +131,15 @@ func rotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
 	return ln.NewTriangle(v1, v2, v3)
 }
 
+func translateTr(tr *ln.Triangle, ref ln.Vector) *ln.Triangle {
+	tMat := ln.Translate(ref)
+
+	v1 := tMat.MulPosition(tr.V1)
+	v2 := tMat.MulPosition(tr.V2)
+	v3 := tMat.MulPosition(tr.V3)
+	return ln.NewTriangle(v1, v2, v3)
+}
+
 func getAdjacencyV(he map[HalfEdge]int) map[int][]int {
 	var ret = make(map[int][]int)
 
@@ -200,8 +209,15 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int,
 	fmt.Println(refP)
 
 	//trPrv := ln.NewTriangle(refT.V1, refT.V2, refT.V3)
+	drawn := make(map[int]bool)
+
 	for _, e := range mst {
 		fmt.Printf("%v--%v\n", e.Source, e.Target)
+		if _, ok := drawn[e.Target]; ok {
+			if _, ok := drawn[e.Source]; ok {
+				continue
+			}
+		}
 		tr1 := vTr[e.Source]
 		tr2 := vTr[e.Target]
 		trs := adj[e.Target]
@@ -214,41 +230,52 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int,
 		// draw
 		// rotating one changes successive trs... maybe recursion??
 		// or maybe check adjacency & cut between f1 & f2 is f1 in MST & f2 not? then unfold
-		tr1N := ln.NewTriangle(tr1.V1, tr1.V2, tr1.V3)
-		tr2N := ln.NewTriangle(tr2.V1, tr2.V2, tr2.V3)
 		heTr1 := he[e.Source]
 		heTr2 := he[e.Target]
 		var sharedE HalfEdge
 		intersectM := make(map[HalfEdge]bool)
-		for _, he := range heTr1 {
-			intersectM[he] = true
+		for _, he1 := range heTr1 {
+			intersectM[he1] = true
 		}
-		for _, he := range heTr2 {
-			if _, ok := intersectM[he]; ok {
-				sharedE = he
+		for _, he2 := range heTr2 {
+			heC := HalfEdge{he2.End, he2.Start}
+			if _, ok := intersectM[heC]; ok {
+				sharedE = heC
+				break
 			}
 		}
 		fmt.Println(sharedE)
 
 		// then use shared E as rAxis
-		// diff rAxis for diff tr? direction... 
-		
-		if (refT != tr1) || (tr1.Normal != refP) {
+		// diff rAxis for diff tr? direction...
 
-			tr1A := getAngle(refP, tr1.Normal)
-			tr1N = rotateTr(tr1, refP, tr1A)
+		// another idea:
+		// make a map; each time something rotates, add it to the map; each rotation is done after checking the map & get updated position if necessary
+		if _, ok := drawn[e.Source]; !ok {
+			tr1N := ln.NewTriangle(tr1.V1, tr1.V2, tr1.V3)
+			if (refT != tr1) || (tr1.Normal != refP) {
+				tr1A := getAngle(refP, tr1.Normal)
+				tr1N = rotateTr(tr1, refP, tr1A)
+				tr1N = translateTr(tr1N, ln.RandomUnitVector())
+				fmt.Printf("tr1 rotated by: %v\n", tr1A)
+			}
+			scene.Add(tr1N)
+			drawn[e.Source] = true
 		}
-		if tr2.Normal != refP {
+		if _, ok := drawn[e.Target]; !ok {
+			tr2N := ln.NewTriangle(tr2.V1, tr2.V2, tr2.V3)
+			if tr2.Normal != refP {
+				tr2A := getAngle(refP, tr2.Normal)
+				tr2N = rotateTr(tr2, refP, tr2A)
+				tr2N = translateTr(tr2N, ln.RandomUnitVector())
+				fmt.Printf("tr2 rotated by: %v\n", tr2A)
+			}
 
-			tr2A := getAngle(refP, tr2.Normal)
-			tr2N = rotateTr(tr2, refP, tr2A)
+			scene.Add(tr2N)
+			drawn[e.Target] = true
 		}
-
-		scene.Add(tr1N)
-		scene.Add(tr2N)
-
 	}
-	eye := ln.Vector{2, 3, 1}
+	eye := ln.Vector{3, 3, 3}
 	center := ln.Vector{0, 0, 0}
 	up := refP
 	width := 1024.0
@@ -313,6 +340,5 @@ func main() {
 
 	creaseF := "output/" + tsF + "-crease.png"
 	drawCreasePattern(mst, trByV, adjFaces, heByF, creaseF)
-
 
 }
