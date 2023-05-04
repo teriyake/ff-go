@@ -124,7 +124,6 @@ func getAnglesTr(tr *ln.Triangle) []float64 {
 func rotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
 	rAxis := tr.Normal.Normalize().Cross(ref.Normalize())
 	rMat := ln.Rotate(rAxis, rAngle)
-	// maybe dot?
 	v1 := rMat.MulPosition(tr.V1)
 	v2 := rMat.MulPosition(tr.V2)
 	v3 := rMat.MulPosition(tr.V3)
@@ -132,6 +131,8 @@ func rotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
 }
 
 func translateTr(tr *ln.Triangle, ref ln.Vector) *ln.Triangle {
+	//recover halfedge position first
+
 	tMat := ln.Translate(ref)
 
 	v1 := tMat.MulPosition(tr.V1)
@@ -202,14 +203,13 @@ func findNet(adj map[int][]int, f string) []graph.Edge[int] {
 func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
 	scene := ln.Scene{}
 
-	//refP := ln.Vector{0,0,1}
-
 	refT := vTr[mst[0].Source]
 	refP := refT.Normal
 	fmt.Println(refP)
 
 	//trPrv := ln.NewTriangle(refT.V1, refT.V2, refT.V3)
 	drawn := make(map[int]bool)
+	rotations := make(map[Tr]float64)
 
 	for _, e := range mst {
 		fmt.Printf("%v--%v\n", e.Source, e.Target)
@@ -255,8 +255,9 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int,
 			tr1N := ln.NewTriangle(tr1.V1, tr1.V2, tr1.V3)
 			if (refT != tr1) || (tr1.Normal != refP) {
 				tr1A := getAngle(refP, tr1.Normal)
+				rotations[tr1] = tr1A
 				tr1N = rotateTr(tr1, refP, tr1A)
-				tr1N = translateTr(tr1N, ln.RandomUnitVector())
+				//tr1N = translateTr(tr1N, ln.RandomUnitVector())
 				fmt.Printf("tr1 rotated by: %v\n", tr1A)
 			}
 			scene.Add(tr1N)
@@ -266,8 +267,9 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int,
 			tr2N := ln.NewTriangle(tr2.V1, tr2.V2, tr2.V3)
 			if tr2.Normal != refP {
 				tr2A := getAngle(refP, tr2.Normal)
+				rotations[tr2] = tr2A 
 				tr2N = rotateTr(tr2, refP, tr2A)
-				tr2N = translateTr(tr2N, ln.RandomUnitVector())
+				//tr2N = translateTr(tr2N, ln.RandomUnitVector())
 				fmt.Printf("tr2 rotated by: %v\n", tr2A)
 			}
 
@@ -282,6 +284,8 @@ func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int,
 	height := 1024.0
 	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
 	paths.WriteToPNG(f, width, height)
+
+	fmt.Println(rotations)
 }
 
 func main() {
