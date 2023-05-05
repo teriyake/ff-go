@@ -1,15 +1,24 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/dominikbraun/graph"
 	"github.com/dominikbraun/graph/draw"
-	_ "github.com/fogleman/gg"
+	"github.com/fogleman/gg"
 	"github.com/fogleman/ln/ln"
+	"io/ioutil"
 	"math"
+	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	W = 1000.0
+	H = 1000.0
 )
 
 type Tr struct {
@@ -22,6 +31,20 @@ type Tr struct {
 type HalfEdge struct {
 	Start ln.Vector
 	End   ln.Vector
+}
+
+type Edge2D struct {
+	X1 float64 `json:"x1"`
+	Y1 float64 `json:"y1"`
+	X2 float64 `json:"x2"`
+	Y2 float64 `json:"y2"`
+	He HalfEdge
+}
+
+type Tr2D struct {
+	E1 Edge2D `json: "e1"`
+	E2 Edge2D `json: "e2"`
+	E3 Edge2D `json: "e3"`
 }
 
 func printTr(tr ln.Triangle) string {
@@ -39,6 +62,15 @@ func unitCross(a, b ln.Vector) ln.Vector {
 	return a.Cross(b).Div((a.Cross(b)).Normalize())
 }
 
+func contains(s []int, v int) bool {
+	for _, e := range s {
+		if v == e {
+			return true
+		}
+	}
+	return false
+}
+
 func removeDups(s []int) []int {
 	keys := make(map[int]bool)
 	ret := []int{}
@@ -49,6 +81,43 @@ func removeDups(s []int) []int {
 		}
 	}
 	return ret
+}
+
+func getSharedEdge(heTr1, heTr2 []HalfEdge, prevTr Tr2D) (Edge2D, int, []HalfEdge) {
+	var sharedE HalfEdge
+	var usedE []HalfEdge
+
+	intersectM := make(map[HalfEdge]bool)
+
+	for _, he1 := range heTr1 {
+		intersectM[he1] = true
+	}
+	for _, he2 := range heTr2 {
+		heC := HalfEdge{he2.End, he2.Start}
+		if _, ok := intersectM[heC]; ok {
+			sharedE = heC
+			usedE = append(usedE, heC)
+			break
+		}
+	}
+	sharedE = HalfEdge{sharedE.End, sharedE.Start}
+	usedE = append(usedE, sharedE)
+
+	// find the Edge in prevTr that has the same sharedE; get its coords
+	prevE1 := prevTr.E1
+	prevE2 := prevTr.E2
+	prevE3 := prevTr.E3
+	if prevE1.He == sharedE {
+		return prevE1, 1, usedE
+	}
+	if prevE2.He == sharedE {
+		return prevE2, 2, usedE
+	}
+	if prevE3.He == sharedE {
+		return prevE3, 3, usedE
+	}
+	fmt.Println("unable to find he")
+	return Edge2D{}, -1, []HalfEdge{}
 }
 
 func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[HalfEdge]int, map[int][]HalfEdge) {
@@ -99,30 +168,72 @@ func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[
 	return triangles, vertices, trVertices, trByVertex, halfedges, heByFace
 }
 
-func getAngle(v1, v2 ln.Vector) float64 {
-	return math.Acos(v1.Normalize().Dot(v2.Normalize())) * 180 / math.Pi
+func getAngle(v1, v2 ln.Vector) (float64, float64) {
+	rad := math.Acos(v1.Normalize().Dot(v2.Normalize()))
+	deg := rad * 180 / math.Pi
+	return rad, deg
 }
 
-func getAnglesTr(tr *ln.Triangle) []float64 {
+func getAnglesTr(tr Tr) []float64 {
 	AB := tr.V2.Add(tr.V1.MulScalar(-1))
 	AC := tr.V3.Add(tr.V1.MulScalar(-1))
-	angleA := math.Acos(AB.Dot(AC)/(AB.Length()*AC.Length())) * 180 / math.Pi
+	angleA := math.Acos(AB.Dot(AC) / (AB.Length() * AC.Length()))
 	// (A-B)*(C-B)/|A-B|*|C-B| = cos(<ABC)
 	BA := tr.V1.Add(tr.V2.MulScalar(-1))
 	BC := tr.V3.Add(tr.V2.MulScalar(-1))
-	angleB := math.Acos(BA.Dot(BC)/(BA.Length()*BC.Length())) * 180 / math.Pi
+	angleB := math.Acos(BA.Dot(BC) / (BA.Length() * BC.Length()))
 
 	CA := tr.V1.Add(tr.V3.MulScalar(-1))
 	CB := tr.V2.Add(tr.V3.MulScalar(-1))
-	angleC := math.Acos(CA.Dot(CB)/(CA.Length()*CB.Length())) * 180 / math.Pi
+	angleC := math.Acos(CA.Dot(CB) / (CA.Length() * CB.Length()))
 
 	angles := []float64{angleA, angleB, angleC}
 
 	return angles
 }
 
+func getAngleTr(tr Tr, n int) float64 {
+	angles := getAnglesTr(tr)
+
+	return angles[n-1]
+}
+
+func getXY(oX, oY float64, a float64, l float64) (float64, float64) {
+	x := math.Cos(a)*l + oX
+	y := math.Sin(a)*l + oY
+	return x, y
+}
+
+func rrrrrotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
+	rAxis := tr.Normal.Cross(ref)
+	rAxis = rAxis.Normalize()
+	v1 := tr.V1.MulScalar(math.Cos(rAngle)).Add(rAxis.Cross(tr.V1)).Add(rAxis.MulScalar(rAxis.Dot(tr.V1)).MulScalar(1 - math.Cos(rAngle)))
+	v2 := tr.V2.MulScalar(math.Cos(rAngle)).Add(rAxis.Cross(tr.V2)).Add(rAxis.MulScalar(rAxis.Dot(tr.V2)).MulScalar(1 - math.Cos(rAngle)))
+	v3 := tr.V2.MulScalar(math.Cos(rAngle)).Add(rAxis.Cross(tr.V2)).Add(rAxis.MulScalar(rAxis.Dot(tr.V2)).MulScalar(1 - math.Cos(rAngle)))
+	return ln.NewTriangle(v1, v2, v3)
+}
+
+/*
+func rotMat(x ln.Vector, a float64) ln.Matrix {
+	sinA := math.Sin(a)
+	cosA := math.Cos(a)
+	oneMinusCosA := 1 - cosA
+	mat := ln.Matrix{(x.X * x.X * oneMinusCosA) + cosA,
+		(x.Y * x.X * oneMinusCosA) - (sinA * x.Z),
+		(x.Z * x.X * oneMinusCosA) + (sinA * x.Y),
+		(x.X * x.Y * oneMinusCosA) + (sinA * x.Z),
+		(x.Y * x.Y * oneMinusCosA) + cosA,
+		(x.Z * x.Y * oneMinusCosA) - (sinA * x.X),
+		(x.Z * x.Z * oneMinusCosA) + cosA,
+	0,0,0,1}
+	return mat
+}
+*/
+
 func rotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
-	rAxis := tr.Normal.Normalize().Cross(ref.Normalize())
+	rAxis := tr.Normal.Cross(ref)
+	rAxis = rAxis.Normalize()
+	//rMat := rotMat(rAxis, rAngle)
 	rMat := ln.Rotate(rAxis, rAngle)
 	v1 := rMat.MulPosition(tr.V1)
 	v2 := rMat.MulPosition(tr.V2)
@@ -130,14 +241,14 @@ func rotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
 	return ln.NewTriangle(v1, v2, v3)
 }
 
-func translateTr(tr *ln.Triangle, ref ln.Vector) *ln.Triangle {
-	//recover halfedge position first
-
-	tMat := ln.Translate(ref)
-
-	v1 := tMat.MulPosition(tr.V1)
-	v2 := tMat.MulPosition(tr.V2)
-	v3 := tMat.MulPosition(tr.V3)
+func rrrotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
+	v1N := tr.V1.Normalize()
+	v2N := tr.V2.Normalize()
+	v3N := tr.V3.Normalize()
+	v1 := ref.Mul(v1N).Div(ref)
+	v2 := ref.Mul(v2N).Div(ref)
+	v3 := ref.Mul(v3N).Div(ref)
+	fmt.Println(rAngle)
 	return ln.NewTriangle(v1, v2, v3)
 }
 
@@ -173,7 +284,7 @@ func getAdjacencyV(he map[HalfEdge]int) map[int][]int {
 	return ret
 }
 
-func findNet(adj map[int][]int, f string) []graph.Edge[int] {
+func findNet(adj map[int][]int, f string) ([]graph.Edge[int], graph.Graph[int, int]) {
 	g := graph.New(graph.IntHash)
 	// find dual
 	for k, v := range adj {
@@ -196,90 +307,238 @@ func findNet(adj map[int][]int, f string) []graph.Edge[int] {
 		mstOut, _ := os.Create(mstF)
 		_ = draw.DOT(mst, mstOut)
 		mstEdges, _ := mst.Edges()
-		return mstEdges
+		return mstEdges, mst
 	}
 }
 
-func drawCreasePattern(mst []graph.Edge[int], vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
-	scene := ln.Scene{}
+func testRender(tr *ln.Triangle, f string) {
 
-	refT := vTr[mst[0].Source]
-	refP := refT.Normal
-	fmt.Println(refP)
+	scene := ln.Scene{}
+	scene.Add(tr)
+	eye := ln.Vector{3, 3, 3}
+	center := ln.Vector{0, 0, 0}
+	up := ln.Vector{0, 1, 0}
+	width := 1024.0
+	height := 1024.0
+	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
+	paths.WriteToPNG(f, width, height)
+}
+
+func getRandColor() string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(16777215)
+	return strconv.FormatInt(int64(r), 16)
+}
+
+func drawCreasePattern(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
+	var jsonTrs []Tr2D
+	jsonF := f + ".json"
+
+	dc := gg.NewContext(W, H)
+	dc.DrawRectangle(0, 0, W, H)
+	dc.SetHexColor("#FFFFFF")
+	dc.Fill()
+
+	scaleF := math.Min(W, H) / 23
+	startX := W / 4
+	startY := H / 4
+	var x1, y1, x2, y2 float64
+	drawn := make(map[int]Tr2D)
+	availableE := make(map[HalfEdge]bool)
+	var prevTr Tr2D
+	prevF := false
+
+	for i, tr := range dfs {
+		nn := 2
+		trC := vTr[tr]
+		trCe1 := trC.V2.Sub(trC.V1)
+		trCe2 := trC.V3.Sub(trC.V2)
+		trCe3 := trC.V1.Sub(trC.V3)
+
+		if i == 0 {
+			x1 = float64(startX)
+			y1 = float64(startY)
+			x2 = x1 - trCe1.Length()*scaleF
+			y2 = y1
+			// just draw; no need to check for half edges etc.
+		} else {
+			for _, adj := range adj[tr] {
+				if v, ok := drawn[adj]; ok {
+					prevTr = v
+					fmt.Printf("adj found: %v--%v\n", tr, adj)
+					break
+				}
+			}
+
+			heTr1A := he[tr]
+			heTr2A := []HalfEdge{prevTr.E1.He, prevTr.E2.He, prevTr.E3.He}
+			var heTr1 []HalfEdge
+			var heTr2 []HalfEdge
+			for _, ee := range heTr1A {
+				if a, ok := availableE[ee]; a || !ok {
+					if !ok {
+						availableE[ee] = true
+					}
+					heTr1 = append(heTr1, ee)
+				}
+			}
+			for _, e := range heTr2A {
+				if a, ok := availableE[e]; a || !ok {
+
+					if !ok {
+						availableE[e] = true
+					}
+					heTr2 = append(heTr2, e)
+				}
+			}
+			fmt.Printf("--------updated he---------\ntr1: %v\ntr2: %v\n", heTr1, heTr2)
+			sharedE, n, usedE := getSharedEdge(heTr1, heTr2, prevTr)
+			x1 = sharedE.X1
+			y1 = sharedE.Y1
+			x2 = sharedE.X2
+			y2 = sharedE.Y2
+			nn = n
+			fmt.Printf("--------used he------------\n%v\t%v\n", usedE[0], usedE[1])
+			availableE[usedE[0]] = false
+			availableE[usedE[1]] = false
+			//fmt.Printf("--------updated map--------\n%v\n", availableE)
+
+			// now draw
+			fmt.Printf("--------shared edge---------\n%v: %v\n", nn, sharedE)
+		}
+		//draw
+		//a12, a12D := getAngle(trCe1, trCe2)
+
+		a := getAngleTr(trC, nn)
+		fmt.Printf("angle: %v\n", a*180/math.Pi)
+
+		r := 0.0
+		if nn == 1 {
+			r = trCe2.Length() * scaleF
+		} else if nn == 2 {
+			r = trCe3.Length() * scaleF
+		} else if nn == 3 {
+			r = trCe1.Length() * scaleF
+		}
+		x3, y3 := getXY(x2, y2, a, r)
+		if prevF {
+			x3, y3 = getXY(x1, y1, a, r)
+			prevF = false
+		}
+		fmt.Printf("side length: %v\n", r)
+
+		color := getRandColor()
+
+		dc.SetHexColor(color)
+		dc.DrawLine(x1, y1, x2, y2)
+		dc.Stroke()
+		dc.SetHexColor(color)
+		dc.DrawLine(x2, y2, x3, y3)
+		dc.Stroke()
+		dc.SetHexColor(color)
+		dc.DrawLine(x3, y3, x1, y1)
+		dc.Stroke()
+
+		// update prevTr
+		he1 := HalfEdge{trC.V1, trC.V2}
+		he2 := HalfEdge{trC.V2, trC.V3}
+		he3 := HalfEdge{trC.V3, trC.V1}
+		drawnTr := Tr2D{Edge2D{x1, y1, x2, y2, he1}, Edge2D{x2, y2, x3, y3, he2}, Edge2D{x3, y3, x1, y1, he3}}
+		drawn[tr] = drawnTr
+		prevTr = drawnTr
+
+		fmt.Printf("tr %v drawn at:\n%v\n%v\n%v\n", tr, drawnTr.E1, drawnTr.E2, drawnTr.E3)
+		fmt.Println()
+
+		jsonTrs = append(jsonTrs, drawnTr)
+	}
+
+	jF, _ := json.MarshalIndent(jsonTrs, "", " ")
+	_ = ioutil.WriteFile(jsonF, jF, 0644)
+	dc.SavePNG(f)
+}
+
+func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
+	scene := ln.Scene{}
 
 	//trPrv := ln.NewTriangle(refT.V1, refT.V2, refT.V3)
 	drawn := make(map[int]bool)
+
+	// another idea:
+	// make a map; each time something rotates, add it to the map; each rotation is done after checking the map & get updated position if necessary
 	rotations := make(map[Tr]float64)
 
-	for _, e := range mst {
-		fmt.Printf("%v--%v\n", e.Source, e.Target)
-		if _, ok := drawn[e.Target]; ok {
-			if _, ok := drawn[e.Source]; ok {
-				continue
-			}
+	prevTrV := dfs[0]
+	prevTr := vTr[prevTrV]
+	for i, trV := range dfs {
+		if _, ok := drawn[trV]; ok {
+			continue
 		}
-		tr1 := vTr[e.Source]
-		tr2 := vTr[e.Target]
-		trs := adj[e.Target]
-		for _, tr := range trs {
-			if vTr[tr] != tr1 {
-				// unfold
-				fmt.Println(tr)
-			}
-		}
+		tr := vTr[trV]
+
 		// draw
-		// rotating one changes successive trs... maybe recursion??
-		// or maybe check adjacency & cut between f1 & f2 is f1 in MST & f2 not? then unfold
-		heTr1 := he[e.Source]
-		heTr2 := he[e.Target]
-		var sharedE HalfEdge
-		intersectM := make(map[HalfEdge]bool)
-		for _, he1 := range heTr1 {
-			intersectM[he1] = true
-		}
-		for _, he2 := range heTr2 {
-			heC := HalfEdge{he2.End, he2.Start}
-			if _, ok := intersectM[heC]; ok {
-				sharedE = heC
-				break
-			}
-		}
-		fmt.Println(sharedE)
-
-		// then use shared E as rAxis
+		//  use shared E as rAxis
 		// diff rAxis for diff tr? direction...
-
-		// another idea:
-		// make a map; each time something rotates, add it to the map; each rotation is done after checking the map & get updated position if necessary
-		if _, ok := drawn[e.Source]; !ok {
-			tr1N := ln.NewTriangle(tr1.V1, tr1.V2, tr1.V3)
-			if (refT != tr1) || (tr1.Normal != refP) {
-				tr1A := getAngle(refP, tr1.Normal)
-				rotations[tr1] = tr1A
-				tr1N = rotateTr(tr1, refP, tr1A)
-				//tr1N = translateTr(tr1N, ln.RandomUnitVector())
-				fmt.Printf("tr1 rotated by: %v\n", tr1A)
+		if tr != prevTr {
+			heTr1 := he[trV]
+			heTr2 := he[prevTrV]
+			var sharedE HalfEdge
+			intersectM := make(map[HalfEdge]bool)
+			for _, he1 := range heTr1 {
+				intersectM[he1] = true
 			}
-			scene.Add(tr1N)
-			drawn[e.Source] = true
-		}
-		if _, ok := drawn[e.Target]; !ok {
-			tr2N := ln.NewTriangle(tr2.V1, tr2.V2, tr2.V3)
-			if tr2.Normal != refP {
-				tr2A := getAngle(refP, tr2.Normal)
-				rotations[tr2] = tr2A 
-				tr2N = rotateTr(tr2, refP, tr2A)
-				//tr2N = translateTr(tr2N, ln.RandomUnitVector())
-				fmt.Printf("tr2 rotated by: %v\n", tr2A)
+			for _, he2 := range heTr2 {
+				heC := HalfEdge{he2.End, he2.Start}
+				if _, ok := intersectM[heC]; ok {
+					sharedE = heC
+					break
+				}
 			}
-
-			scene.Add(tr2N)
-			drawn[e.Target] = true
+			fmt.Println(sharedE)
 		}
+
+		fmt.Printf("tr %v: %v\tref tr %v: %v\n", trV, tr, prevTrV, prevTr)
+
+		trN := ln.NewTriangle(tr.V1, tr.V2, tr.V3)
+		// check angle between tr1 & prev tr2
+		if tr.Normal != prevTr.Normal {
+			// check if tr is adjacent to prevtr
+			if !contains(adj[trV], prevTrV) {
+				// traverse adj to find the last rotated adj tr??
+				for j := i; j >= 0; j-- {
+					if contains(adj[trV], dfs[j]) {
+						prevTr = vTr[dfs[j]]
+						prevTrV = dfs[j]
+						break
+					}
+				}
+				fmt.Printf("new ref tr %v: %v\n", prevTr, prevTrV)
+			}
+			trA, trAD := getAngle(prevTr.Normal, tr.Normal)
+			rotations[tr] = trAD
+			trN = rotateTr(tr, prevTr.Normal, trA)
+			//tr1N = translateTr(tr1N, ln.RandomUnitVector())
+			fmt.Printf("tr %v rotated by: %v\tref tr: %v\n", trV, trAD, prevTrV)
+			fmt.Printf("new tr %v: %v\n", trV, trN)
+
+			//fmt.Printf("tr %v not rotated\tref tr: %v\n", trV, prevTrV)
+
+		} else {
+			fmt.Printf("tr %v not rotated\tsame normal as ref tr: %v\n", trV, prevTrV)
+		}
+
+		tf := fmt.Sprintf("output/tr-%v.png", trV)
+		testRender(trN, tf)
+
+		scene.Add(trN)
+		drawn[trV] = true
+		//prevTr = tr
+		prevTr = Tr{trN.V1, trN.V2, trN.V3, getNormal(trN.V1, trN.V2, trN.V3)}
+		prevTrV = trV
 	}
+
 	eye := ln.Vector{3, 3, 3}
 	center := ln.Vector{0, 0, 0}
-	up := refP
+	up := ln.Vector{0, 1, 0}
 	width := 1024.0
 	height := 1024.0
 	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
@@ -297,16 +556,16 @@ func main() {
 	mesh.UnitCube()
 	scene.Add(ln.NewTransformedShape(mesh, ln.Rotate(ln.Vector{0, 1, 0}, 0.5)))
 
-	eye := ln.Vector{2, 1, 2}    // camera position
+	eye := ln.Vector{3, 3, 3}    // camera position
 	center := ln.Vector{0, 0, 0} // camera looks at
-	up := ln.Vector{0, 0, 1}     // up direction
+	up := ln.Vector{0, 1, 0}     // up direction
 
 	// define rendering parameters
 	width := 1024.0  // rendered width
 	height := 1024.0 // rendered height
 	fovy := 50.0     // vertical field of view, degrees
 	znear := 0.1     // near z plane
-	zfar := 10.0     // far z plane
+	zfar := 100.0    // far z plane
 	step := 0.01     // how finely to chop the paths for visibility testing
 
 	// compute 2D paths that depict the 3D scene
@@ -337,12 +596,18 @@ func main() {
 	}
 
 	adjF := "output/" + tsF
-	mst := findNet(adjFaces, adjF)
+	mst, mstG := findNet(adjFaces, adjF)
 	fmt.Println(mst)
 
-	//fmt.Println(halfedges)
+	var dfs []int
+	graph.DFS(mstG, mst[0].Source, func(v int) bool {
+		dfs = append(dfs, v)
+		fmt.Printf("%v--", v)
+		return false
+	})
+	fmt.Println()
 
 	creaseF := "output/" + tsF + "-crease.png"
-	drawCreasePattern(mst, trByV, adjFaces, heByF, creaseF)
+	drawCreasePattern(dfs, trByV, adjFaces, heByF, creaseF)
 
 }

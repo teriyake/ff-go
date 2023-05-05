@@ -10,6 +10,8 @@ github.com/boombuler/barcode v1.0.1/go.mod h1:paBWMcWSl3LHKBqUq+rly7CNSldXjb2rDl
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dominikbraun/graph v0.20.0 h1:a/ReB8JqcIhpo9yx31V1W+OwRnak4lo7QFsj17kpe6c=
 github.com/dominikbraun/graph v0.20.0/go.mod h1:yOjYyogZLY1LSG9E33JWZJiq5k83Qy2C6POAuiViluc=
+github.com/flywave/go3d v0.0.0-20220728100441-e65a6f6f7288 h1:/SaifXhSj3ivL+5Yh22Dah0hWu77YYZr3UrJy8QRg78=
+github.com/flywave/go3d v0.0.0-20220728100441-e65a6f6f7288/go.mod h1:bvblxPT+cF0zgDi71CuusPPWCwqU0SikE9ySl2NzeQw=
 github.com/fogleman/gg v1.3.0 h1:/7zJX8F6AaYQc57WQCyN9cAIz+4bCJGO9B+dyW29am8=
 github.com/fogleman/gg v1.3.0/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzPa1k=
 github.com/fogleman/ln v0.0.0-20170223135521-12e6c6e74459 h1:FNZL5NQ+5AjQhfJyLtsOvHwfBdaCs5zRCXnOgsueUYo=
