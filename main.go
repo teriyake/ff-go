@@ -10,10 +10,11 @@ import (
 	"github.com/fogleman/ln/ln"
 	"gonum.org/v1/gonum/floats/scalar"
 	"gonum.org/v1/gonum/num/quat"
-	_ "io/ioutil"
+	_"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +26,7 @@ const (
 )
 
 type Vertex struct {
-	X, Y, Z float64
+	V ln.Vector
 }
 
 type Edge struct {
@@ -51,8 +52,12 @@ func printTr(tr ln.Triangle) string {
 func getNormal(v1, v2, v3 ln.Vector) ln.Vector {
 	vA := v2.Add(v1.MulScalar(-1))
 	vB := v3.Add(v1.MulScalar(-1))
-	vN := vA.Cross(vB)
+	vN := vA.Cross(vB).Normalize()
 	return vN
+}
+
+func getAngle2(v1, v2 ln.Vector) float64 {
+	return math.Acos(v1.Dot(v2) / (v1.Length() * v2.Length()))
 }
 
 func unitCross(a, b ln.Vector) ln.Vector {
@@ -60,7 +65,7 @@ func unitCross(a, b ln.Vector) ln.Vector {
 }
 
 func raise(v Vertex) quat.Number {
-	return quat.Number{Imag: v.X, Jmag: v.Y, Kmag: v.Z}
+	return quat.Number{Imag: v.V.X, Jmag: v.V.Y, Kmag: v.V.Z}
 }
 
 func qRotate(v Vertex, q quat.Number, s float64) Vertex {
@@ -70,7 +75,7 @@ func qRotate(v Vertex, q quat.Number, s float64) Vertex {
 
 	vN := quat.Mul(quat.Mul(q, raise(v)), quat.Conj(q))
 
-	return Vertex{X: vN.Imag, Y: vN.Jmag, Z: vN.Kmag}
+	return Vertex{ln.Vector{X: vN.Imag, Y: vN.Jmag, Z: vN.Kmag}}
 }
 
 func contains(s []int, v int) bool {
@@ -344,7 +349,6 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 
 	// another idea:
 	// make a map; each time something rotates, add it to the map; each rotation is done after checking the map & get updated position if necessary
-	rotations := make(map[Tr]float64)
 
 	prevTrV := dfs[0]
 	prevTr := vTr[prevTrV]
@@ -354,65 +358,74 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 		}
 		tr := vTr[trV]
 
+		fmt.Printf("-----drawing tr %v--------\n", trV)
+		if i == 0 {
+
+			trN := ln.NewTriangle(tr.V1, tr.V2, tr.V3)
+			scene.Add(trN)
+			drawn[trV] = true
+			//prevTr = tr
+			prevTr = Tr{tr.V1, tr.V2, tr.V3, getNormal(tr.V1, tr.V2, tr.V3)}
+			prevTrV = trV
+			tf := fmt.Sprintf("output/tr-%v.png", trV)
+			testRender(trN, tf)
+			continue
+		}
+
 		// draw
 		//  use shared E as rAxis
 		// diff rAxis for diff tr? direction...
-		if tr != prevTr {
-			heTr1 := he[trV]
-			heTr2 := he[prevTrV]
-			var sharedE HalfEdge
-			intersectM := make(map[HalfEdge]bool)
-			for _, he1 := range heTr1 {
-				intersectM[he1] = true
-			}
-			for _, he2 := range heTr2 {
-				heC := HalfEdge{he2.End, he2.Start}
-				if _, ok := intersectM[heC]; ok {
-					sharedE = heC
+		if !contains(adj[prevTrV], trV) {
+			for _, adjTrV := range adj[trV] {
+				if (adjTrV == prevTrV) && (drawn[adjTrV]) {
+					fmt.Printf("found: %v--%v\n", trV, adjTrV)
+					prevTrV = adjTrV
+					prevTr = vTr[prevTrV]
 					break
 				}
 			}
-			fmt.Println(sharedE)
 		}
-
-		fmt.Printf("tr %v: %v\tref tr %v: %v\n", trV, tr, prevTrV, prevTr)
+		heTr1 := he[trV]
+		heTr2 := he[prevTrV]
+		var sharedE HalfEdge
+		intersectM := make(map[HalfEdge]bool)
+		for _, he1 := range heTr1 {
+			intersectM[he1] = true
+		}
+		for _, he2 := range heTr2 {
+			heC := HalfEdge{he2.End, he2.Start}
+			if _, ok := intersectM[heC]; ok {
+				sharedE = heC
+				break
+			}
+		}
+		fmt.Println(sharedE)
 
 		trN := ln.NewTriangle(tr.V1, tr.V2, tr.V3)
 		// check angle between tr1 & prev tr2
 		if tr.Normal != prevTr.Normal {
-			// check if tr is adjacent to prevtr
-			if !contains(adj[trV], prevTrV) {
-				// traverse adj to find the last rotated adj tr??
-				for j := i; j >= 0; j-- {
-					if contains(adj[trV], dfs[j]) {
-						prevTr = vTr[dfs[j]]
-						prevTrV = dfs[j]
-						break
-					}
-				}
-				fmt.Printf("new ref tr %v: %v\n", prevTr, prevTrV)
-			}
-			trA, trAD := getAngle(prevTr.Normal, tr.Normal)
-			rotations[tr] = trAD
-			trN = rotateTr(tr, prevTr.Normal, trA)
-			//tr1N = translateTr(tr1N, ln.RandomUnitVector())
-			fmt.Printf("tr %v rotated by: %v\tref tr: %v\n", trV, trAD, prevTrV)
-			fmt.Printf("new tr %v: %v\n", trV, trN)
-
-			//fmt.Printf("tr %v not rotated\tref tr: %v\n", trV, prevTrV)
-
+			rA := getAngle2(tr.Normal, prevTr.Normal)
+			rAxis := tr.Normal.Cross(prevTr.Normal).Normalize()
+			rMat := ln.Rotate(rAxis, rA)
+			trR := ln.NewTransformedShape(trN, rMat)
+			fmt.Printf("tr %v rotated by %v\tref tr %v\n", trV, rA*180/math.Pi, prevTrV)
+			scene.Add(trR)
+			drawn[trV] = true
+			//prevTr = tr
+			prevTr = Tr{trN.V1, trN.V2, trN.V3, getNormal(trN.V1, trN.V2, trN.V3)}
+			prevTrV = trV
 		} else {
 			fmt.Printf("tr %v not rotated\tsame normal as ref tr: %v\n", trV, prevTrV)
+			tf := fmt.Sprintf("output/tr-%v.png", trV)
+			testRender(trN, tf)
+
+			scene.Add(trN)
+			drawn[trV] = true
+			//prevTr = tr
+			prevTr = Tr{trN.V1, trN.V2, trN.V3, getNormal(trN.V1, trN.V2, trN.V3)}
+			prevTrV = trV
 		}
 
-		tf := fmt.Sprintf("output/tr-%v.png", trV)
-		testRender(trN, tf)
-
-		scene.Add(trN)
-		drawn[trV] = true
-		//prevTr = tr
-		prevTr = Tr{trN.V1, trN.V2, trN.V3, getNormal(trN.V1, trN.V2, trN.V3)}
-		prevTrV = trV
 	}
 
 	eye := ln.Vector{3, 3, 3}
@@ -422,11 +435,20 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 	height := 1024.0
 	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
 	paths.WriteToPNG(f, width, height)
-
-	fmt.Println(rotations)
 }
 
 func main() {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	tsF := strings.Replace(strings.Replace(ts, ":", "", -1), "-", "", -1)
+
+	logF := "logs/" + tsF + "-log" + ".txt"
+	tmp, err := os.OpenFile(logF, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	temp := os.Stdout
+	os.Stdout = tmp
+
 	scene := ln.Scene{}
 	mesh, err := ln.LoadOBJ("input/cube.obj")
 	if err != nil {
@@ -451,8 +473,6 @@ func main() {
 	paths := scene.Render(eye, center, up, width, height, fovy, znear, zfar, step)
 
 	// render the paths in an image
-	ts := time.Now().UTC().Format(time.RFC3339)
-	tsF := strings.Replace(strings.Replace(ts, ":", "", -1), "-", "", -1)
 	meshF := "output/" + tsF + "-mesh.png"
 	paths.WriteToPNG(meshF, width, height)
 
@@ -492,29 +512,47 @@ func main() {
 	a := vec3.UnitX
 	fmt.Println(a)
 
+	//testing quat rotation
 	alpha := 2 * math.Pi / 3
-	q := raise(Vertex{1, 1, 1})
+	q := raise(Vertex{ln.Vector{1, 1, 1}})
 	scale := 1.0
 	q = quat.Scale(math.Sin(alpha/2)/quat.Abs(q), q)
 	q.Real += math.Cos(alpha / 2)
-	for i, v := range []Vertex{
-		{X: 0, Y: 0, Z: 0},
-		{X: 0, Y: 0, Z: 1},
-		{X: 0, Y: 1, Z: 0},
-		{X: 0, Y: 1, Z: 1},
-		{X: 1, Y: 0, Z: 0},
-		{X: 1, Y: 0, Z: 1},
-		{X: 1, Y: 1, Z: 0},
-		{X: 1, Y: 1, Z: 1},
-	} {
-		vN := qRotate(v, q, scale)
-		vN.X = scalar.Round(vN.X, 2)
-		vN.Y = scalar.Round(vN.Y, 2)
-		vN.Z = scalar.Round(vN.Z, 2)
-		fmt.Printf("%d %+v -> %+v\n", i, v, vN)
 
-		// convert Vertex to ln.Vector
+	sceneT := ln.Scene{}
+	tt := ln.NewCube(ln.Vector{0, 0, 0}, ln.Vector{1, 1, 1})
+	ttt := tt.Paths()
+	var tP []Vertex
+	for _, e := range ttt {
+		for _, v := range e {
+			vN := qRotate(Vertex{v}, q, scale)
+			vN.V.X = scalar.Round(vN.V.X, 2)
+			vN.V.Y = scalar.Round(vN.V.Y, 2)
+			vN.V.Z = scalar.Round(vN.V.Z, 2)
+			fmt.Printf("%+v -> %+v\n", v, vN)
+			tP = append(tP, vN)
+		}
+	}
+	tJ := ln.NewTriangle(tP[0].V, tP[3].V, tP[7].V)
+	sceneT.Add(tJ)
+	fmt.Println(tJ.Paths())
+	tA := math.Pi / 1
+	tAxis := tP[3].V.Sub(tP[0].V).MulScalar(2.0)
+	upT := tAxis.Cross(ln.Vector{0, 2, 8})
+	tM := ln.Rotate(tP[3].V.Sub(tP[0].V), tA)
+	tAA := ln.NewTriangle(tAxis, tP[0].V, tP[3].V)
+	transT := ln.NewTransformedShape(tJ, tM)
+	sceneT.Add(transT)
+	sceneT.Add(tAA)
+	fmt.Println(transT.Paths())
+	testF := "output/" + tsF + "-test.png"
+	pathsT := sceneT.Render(eye, center, upT, width, height, fovy, 0.1, 100, 0.01)
+	pathsT.WriteToPNG(testF, width, height)
 
+	if err := tmp.Close(); err != nil {
+		log.Fatal(err)
 	}
 
+	os.Stdout = temp
+	fmt.Println("---------finished----------")
 }
