@@ -1,13 +1,16 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/dominikbraun/graph"
 	"github.com/dominikbraun/graph/draw"
-	"github.com/fogleman/gg"
+	_ "github.com/flywave/go3d/quaternion"
+	"github.com/flywave/go3d/vec3"
+	_ "github.com/fogleman/gg"
 	"github.com/fogleman/ln/ln"
-	"io/ioutil"
+	"gonum.org/v1/gonum/floats/scalar"
+	"gonum.org/v1/gonum/num/quat"
+	_ "io/ioutil"
 	"math"
 	"math/rand"
 	"os"
@@ -21,6 +24,14 @@ const (
 	H = 1000.0
 )
 
+type Vertex struct {
+	X, Y, Z float64
+}
+
+type Edge struct {
+	S, E Vertex
+}
+
 type Tr struct {
 	V1     ln.Vector
 	V2     ln.Vector
@@ -31,20 +42,6 @@ type Tr struct {
 type HalfEdge struct {
 	Start ln.Vector
 	End   ln.Vector
-}
-
-type Edge2D struct {
-	X1 float64 `json:"x1"`
-	Y1 float64 `json:"y1"`
-	X2 float64 `json:"x2"`
-	Y2 float64 `json:"y2"`
-	He HalfEdge
-}
-
-type Tr2D struct {
-	E1 Edge2D `json: "e1"`
-	E2 Edge2D `json: "e2"`
-	E3 Edge2D `json: "e3"`
 }
 
 func printTr(tr ln.Triangle) string {
@@ -60,6 +57,20 @@ func getNormal(v1, v2, v3 ln.Vector) ln.Vector {
 
 func unitCross(a, b ln.Vector) ln.Vector {
 	return a.Cross(b).Div((a.Cross(b)).Normalize())
+}
+
+func raise(v Vertex) quat.Number {
+	return quat.Number{Imag: v.X, Jmag: v.Y, Kmag: v.Z}
+}
+
+func qRotate(v Vertex, q quat.Number, s float64) Vertex {
+	if l := quat.Abs(q); l != s {
+		q = quat.Scale(math.Sqrt(s)/l, q)
+	}
+
+	vN := quat.Mul(quat.Mul(q, raise(v)), quat.Conj(q))
+
+	return Vertex{X: vN.Imag, Y: vN.Jmag, Z: vN.Kmag}
 }
 
 func contains(s []int, v int) bool {
@@ -83,6 +94,7 @@ func removeDups(s []int) []int {
 	return ret
 }
 
+/*
 func getSharedEdge(heTr1, heTr2 []HalfEdge, prevTr Tr2D) (Edge2D, int, []HalfEdge) {
 	var sharedE HalfEdge
 	var usedE []HalfEdge
@@ -119,6 +131,7 @@ func getSharedEdge(heTr1, heTr2 []HalfEdge, prevTr Tr2D) (Edge2D, int, []HalfEdg
 	fmt.Println("unable to find he")
 	return Edge2D{}, -1, []HalfEdge{}
 }
+*/
 
 func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[HalfEdge]int, map[int][]HalfEdge) {
 	var triangles []Tr
@@ -196,12 +209,6 @@ func getAngleTr(tr Tr, n int) float64 {
 	angles := getAnglesTr(tr)
 
 	return angles[n-1]
-}
-
-func getXY(oX, oY float64, a float64, l float64) (float64, float64) {
-	x := math.Cos(a)*l + oX
-	y := math.Sin(a)*l + oY
-	return x, y
 }
 
 func rrrrrotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
@@ -327,134 +334,6 @@ func testRender(tr *ln.Triangle, f string) {
 func getRandColor() string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(16777215)
 	return strconv.FormatInt(int64(r), 16)
-}
-
-func drawCreasePattern(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
-	var jsonTrs []Tr2D
-	jsonF := f + ".json"
-
-	dc := gg.NewContext(W, H)
-	dc.DrawRectangle(0, 0, W, H)
-	dc.SetHexColor("#FFFFFF")
-	dc.Fill()
-
-	scaleF := math.Min(W, H) / 23
-	startX := W / 4
-	startY := H / 4
-	var x1, y1, x2, y2 float64
-	drawn := make(map[int]Tr2D)
-	availableE := make(map[HalfEdge]bool)
-	var prevTr Tr2D
-	prevF := false
-
-	for i, tr := range dfs {
-		nn := 2
-		trC := vTr[tr]
-		trCe1 := trC.V2.Sub(trC.V1)
-		trCe2 := trC.V3.Sub(trC.V2)
-		trCe3 := trC.V1.Sub(trC.V3)
-
-		if i == 0 {
-			x1 = float64(startX)
-			y1 = float64(startY)
-			x2 = x1 - trCe1.Length()*scaleF
-			y2 = y1
-			// just draw; no need to check for half edges etc.
-		} else {
-			for _, adj := range adj[tr] {
-				if v, ok := drawn[adj]; ok {
-					prevTr = v
-					fmt.Printf("adj found: %v--%v\n", tr, adj)
-					break
-				}
-			}
-
-			heTr1A := he[tr]
-			heTr2A := []HalfEdge{prevTr.E1.He, prevTr.E2.He, prevTr.E3.He}
-			var heTr1 []HalfEdge
-			var heTr2 []HalfEdge
-			for _, ee := range heTr1A {
-				if a, ok := availableE[ee]; a || !ok {
-					if !ok {
-						availableE[ee] = true
-					}
-					heTr1 = append(heTr1, ee)
-				}
-			}
-			for _, e := range heTr2A {
-				if a, ok := availableE[e]; a || !ok {
-
-					if !ok {
-						availableE[e] = true
-					}
-					heTr2 = append(heTr2, e)
-				}
-			}
-			fmt.Printf("--------updated he---------\ntr1: %v\ntr2: %v\n", heTr1, heTr2)
-			sharedE, n, usedE := getSharedEdge(heTr1, heTr2, prevTr)
-			x1 = sharedE.X1
-			y1 = sharedE.Y1
-			x2 = sharedE.X2
-			y2 = sharedE.Y2
-			nn = n
-			fmt.Printf("--------used he------------\n%v\t%v\n", usedE[0], usedE[1])
-			availableE[usedE[0]] = false
-			availableE[usedE[1]] = false
-			//fmt.Printf("--------updated map--------\n%v\n", availableE)
-
-			// now draw
-			fmt.Printf("--------shared edge---------\n%v: %v\n", nn, sharedE)
-		}
-		//draw
-		//a12, a12D := getAngle(trCe1, trCe2)
-
-		a := getAngleTr(trC, nn)
-		fmt.Printf("angle: %v\n", a*180/math.Pi)
-
-		r := 0.0
-		if nn == 1 {
-			r = trCe2.Length() * scaleF
-		} else if nn == 2 {
-			r = trCe3.Length() * scaleF
-		} else if nn == 3 {
-			r = trCe1.Length() * scaleF
-		}
-		x3, y3 := getXY(x2, y2, a, r)
-		if prevF {
-			x3, y3 = getXY(x1, y1, a, r)
-			prevF = false
-		}
-		fmt.Printf("side length: %v\n", r)
-
-		color := getRandColor()
-
-		dc.SetHexColor(color)
-		dc.DrawLine(x1, y1, x2, y2)
-		dc.Stroke()
-		dc.SetHexColor(color)
-		dc.DrawLine(x2, y2, x3, y3)
-		dc.Stroke()
-		dc.SetHexColor(color)
-		dc.DrawLine(x3, y3, x1, y1)
-		dc.Stroke()
-
-		// update prevTr
-		he1 := HalfEdge{trC.V1, trC.V2}
-		he2 := HalfEdge{trC.V2, trC.V3}
-		he3 := HalfEdge{trC.V3, trC.V1}
-		drawnTr := Tr2D{Edge2D{x1, y1, x2, y2, he1}, Edge2D{x2, y2, x3, y3, he2}, Edge2D{x3, y3, x1, y1, he3}}
-		drawn[tr] = drawnTr
-		prevTr = drawnTr
-
-		fmt.Printf("tr %v drawn at:\n%v\n%v\n%v\n", tr, drawnTr.E1, drawnTr.E2, drawnTr.E3)
-		fmt.Println()
-
-		jsonTrs = append(jsonTrs, drawnTr)
-	}
-
-	jF, _ := json.MarshalIndent(jsonTrs, "", " ")
-	_ = ioutil.WriteFile(jsonF, jF, 0644)
-	dc.SavePNG(f)
 }
 
 func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
@@ -608,6 +487,34 @@ func main() {
 	fmt.Println()
 
 	creaseF := "output/" + tsF + "-crease.png"
-	drawCreasePattern(dfs, trByV, adjFaces, heByF, creaseF)
+	drawCreasePattern3D(dfs, trByV, adjFaces, heByF, creaseF)
+
+	a := vec3.UnitX
+	fmt.Println(a)
+
+	alpha := 2 * math.Pi / 3
+	q := raise(Vertex{1, 1, 1})
+	scale := 1.0
+	q = quat.Scale(math.Sin(alpha/2)/quat.Abs(q), q)
+	q.Real += math.Cos(alpha / 2)
+	for i, v := range []Vertex{
+		{X: 0, Y: 0, Z: 0},
+		{X: 0, Y: 0, Z: 1},
+		{X: 0, Y: 1, Z: 0},
+		{X: 0, Y: 1, Z: 1},
+		{X: 1, Y: 0, Z: 0},
+		{X: 1, Y: 0, Z: 1},
+		{X: 1, Y: 1, Z: 0},
+		{X: 1, Y: 1, Z: 1},
+	} {
+		vN := qRotate(v, q, scale)
+		vN.X = scalar.Round(vN.X, 2)
+		vN.Y = scalar.Round(vN.Y, 2)
+		vN.Z = scalar.Round(vN.Z, 2)
+		fmt.Printf("%d %+v -> %+v\n", i, v, vN)
+
+		// convert Vertex to ln.Vector
+
+	}
 
 }
