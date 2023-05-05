@@ -501,14 +501,14 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 
 	}
 
-	eye := ln.Vector{3, 3, 3}
+	eye := ln.Vector{2, 6, 1}
 	center := ln.Vector{0, 0, 0}
 	up := ln.Vector{0, 1, 0}
 	width := 1024.0
 	height := 1024.0
 	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
 	paths.WriteToPNG(f, width, height)
-	pathsQ := sceneQ.Render(ln.Vector{1, -2, 3}, center, up, width, height, 50, 0.1, 100, 0.01)
+	pathsQ := sceneQ.Render(ln.Vector{5, -4, 9}, center, up, width, height, 50, 0.1, 100, 0.01)
 	pathsQ.WriteToPNG(f+"-quat.png", width, height)
 }
 

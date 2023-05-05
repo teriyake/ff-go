@@ -1,0 +1,55 @@
+12
+8
+12
+12
+12
+36
+12
+6--2--7--8
+7--6--10--0
+1--5--8--0
+4--5--9--3
+3--9--2--4
+2--3--6--11
+10--0--11--7
+11--10--2--5
+8--1--6--9
+5--4--1--11
+9--3--4--8
+0--10--1--7
+[{6 7 {map[] 0 <nil>}} {6 2 {map[] 0 <nil>}} {6 8 {map[] 0 <nil>}} {4 3 {map[] 0 <nil>}} {9 3 {map[] 0 <nil>}} {5 1 {map[] 0 <nil>}} {3 2 {map[] 0 <nil>}} {8 1 {map[] 0 <nil>}} {7 10 {map[] 0 <nil>}} {7 0 {map[] 0 <nil>}} {10 11 {map[] 0 <nil>}}]
+6--7--0--10--11--8--1--5--2--3--9--4--
+-----drawing tr 6--------
+-----drawing tr 7--------
+{{0.5 0.5 0.5} {-0.5 0.5 -0.5}}
+tr 7 not rotated	same normal as ref tr: 6
+-----drawing tr 0--------
+{{-0.5 0.5 0.5} {-0.5 0.5 -0.5}}
+tr 0 rotated by 90	ref tr 7
+-----drawing tr 10--------
+{{-0.5 0.5 0.5} {-0.5 -0.5 0.5}}
+tr 10 rotated by 90	ref tr 0
+-----drawing tr 11--------
+{{0.5 0.5 0.5} {-0.5 -0.5 0.5}}
+tr 11 not rotated	same normal as ref tr: 10
+-----drawing tr 8--------
+{{0 0 0} {0 0 0}}
+tr 8 rotated by 180	ref tr 11
+-----drawing tr 1--------
+{{-0.5 0.5 -0.5} {-0.5 -0.5 -0.5}}
+tr 1 rotated by 90	ref tr 8
+-----drawing tr 5--------
+{{-0.5 -0.5 0.5} {-0.5 -0.5 -0.5}}
+tr 5 rotated by 90	ref tr 1
+-----drawing tr 2--------
+{{0 0 0} {0 0 0}}
+tr 2 rotated by 90	ref tr 5
+-----drawing tr 3--------
+{{0.5 0.5 -0.5} {0.5 -0.5 0.5}}
+tr 3 not rotated	same normal as ref tr: 2
+-----drawing tr 9--------
+{{0.5 0.5 -0.5} {0.5 -0.5 -0.5}}
+tr 9 rotated by 90	ref tr 3
+-----drawing tr 4--------
+{{-0.5 -0.5 -0.5} {0.5 -0.5 -0.5}}
+tr 4 rotated by 90	ref tr 9
