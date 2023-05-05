@@ -402,6 +402,7 @@ func getRandColor() string {
 
 func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
 	scene := ln.Scene{}
+	sceneQ := ln.Scene{}
 
 	//trPrv := ln.NewTriangle(refT.V1, refT.V2, refT.V3)
 	drawn := make(map[int]bool)
@@ -412,10 +413,23 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 	prevTrV := dfs[0]
 	prevTr := vTr[prevTrV]
 	for i, trV := range dfs {
+		tr := vTr[trV]
+
+		q := qAlign(ln.Vector{0, 0, 1}, tr.Normal)
+		qMat := q.toMat4()
+		centroidT := tr.V1.Add(tr.V2).Add(tr.V3).MulScalar(1 / 3)
+		aq := tr.V1.Sub(centroidT)
+		bq := tr.V2.Sub(centroidT)
+		cq := tr.V3.Sub(centroidT)
+		nA := qMat.mulVec(aq)
+		nB := qMat.mulVec(bq)
+		nC := qMat.mulVec(cq)
+		nnn := ln.NewTriangle(nA, nB, nC)
+		sceneQ.Add(nnn)
+
 		if _, ok := drawn[trV]; ok {
 			continue
 		}
-		tr := vTr[trV]
 
 		fmt.Printf("-----drawing tr %v--------\n", trV)
 		if i == 0 {
@@ -494,6 +508,8 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 	height := 1024.0
 	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
 	paths.WriteToPNG(f, width, height)
+	pathsQ := sceneQ.Render(ln.Vector{1, -2, 3}, center, up, width, height, 50, 0.1, 100, 0.01)
+	pathsQ.WriteToPNG(f+"-quat.png", width, height)
 }
 
 func main() {
@@ -590,7 +606,6 @@ func main() {
 			}
 		}
 	*/
-	sceneT := ln.Scene{}
 	/*
 		tJ := ln.NewTriangle(tP[0].V, tP[3].V, tP[7].V)
 		sceneT.Add(tJ)
@@ -612,23 +627,5 @@ func main() {
 	os.Stdout = temp
 	fmt.Println("---------finished----------")
 
-	tJ := ln.NewTriangle(ln.Vector{0, 1, 2}, ln.Vector{0, 1, 1}, ln.Vector{0, 0, 0})
-	sceneT.Add(tJ)
-	testMat := Matrix{1.0, 2.0, 3.0, 0.0, 1.0, 2.3, 1.0, 0.0, 2.0}
-	fmt.Println(testMat.Det())
-	qTest := qAlign(ln.Vector{0, 0, 1}, getNormal(tJ.V1, tJ.V2, tJ.V3))
-	qMat := qTest.toMat4()
-	centroidT := tJ.V1.Add(tJ.V2).Add(tJ.V3).MulScalar(1 / 3)
-	aq := tJ.V1.Sub(centroidT)
-	bq := tJ.V2.Sub(centroidT)
-	cq := tJ.V3.Sub(centroidT)
-	nA := qMat.mulVec(aq)
-	nB := qMat.mulVec(bq)
-	nC := qMat.mulVec(cq)
-	nnn := ln.NewTriangle(nA, nB, nC)
-	sceneT.Add(nnn)
-	testF := "output/" + tsF + "-test.png"
-	pathsT := sceneT.Render(eye, center, up, width, height, fovy, 0.1, 100, 0.01)
-	pathsT.WriteToPNG(testF, width, height)
 
 }
