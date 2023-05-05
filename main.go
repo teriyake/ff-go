@@ -482,6 +482,14 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 			rMat := ln.Rotate(rAxis, rA)
 			trR := ln.NewTransformedShape(trN, rMat)
 			fmt.Printf("tr %v rotated by %v\tref tr %v\n", trV, rA*180/math.Pi, prevTrV)
+
+			// try method 2
+			trP := trN.Paths()
+			trP = trP.Transform(ln.Rotate(rAxis, rA))
+			trP = trP.Transform(ln.Scale(ln.Vector{1024/3, 1024/3, 1}).Translate(ln.Vector{1024/4,1024/4,0}))
+			trP.WriteToPNG(fmt.Sprintf("output/r2-tr-%v.png", trV), 1024, 1024)
+
+			fmt.Printf("tr %v drawn at:\n%v\n", trV, trP)
 			scene.Add(trR)
 			drawn[trV] = true
 			//prevTr = tr
@@ -489,8 +497,10 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 			prevTrV = trV
 		} else {
 			fmt.Printf("tr %v not rotated\tsame normal as ref tr: %v\n", trV, prevTrV)
+			fmt.Printf("tr %v drawn at:\n%v\t%v\t%v\n", trV, trN.V1, trN.V2, trN.V3)
 			//tf := fmt.Sprintf("output/tr-%v.png", trV)
 			//testRender(trN, tf)
+
 
 			scene.Add(trN)
 			drawn[trV] = true
@@ -626,6 +636,5 @@ func main() {
 
 	os.Stdout = temp
 	fmt.Println("---------finished----------")
-
 
 }

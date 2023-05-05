@@ -1,0 +1,72 @@
+strict graph {
+
+
+	"10" [  weight=0 ];
+
+	"10" -- "11" [  weight=0 ];
+
+	"10" -- "7" [  weight=0 ];
+
+	"10" [  weight=0 ];
+
+	"7" [  weight=0 ];
+
+	"7" -- "10" [  weight=0 ];
+
+	"0" [  weight=0 ];
+
+	"0" -- "10" [  weight=0 ];
+
+	"0" -- "1" [  weight=0 ];
+
+	"6" [  weight=0 ];
+
+	"6" -- "2" [  weight=0 ];
+
+	"2" [  weight=0 ];
+
+	"2" -- "3" [  weight=0 ];
+
+	"2" -- "11" [  weight=0 ];
+
+	"2" -- "6" [  weight=0 ];
+
+	"9" [  weight=0 ];
+
+	"9" -- "4" [  weight=0 ];
+
+	"9" -- "8" [  weight=0 ];
+
+	"9" -- "3" [  weight=0 ];
+
+	"11" [  weight=0 ];
+
+	"11" -- "10" [  weight=0 ];
+
+	"11" -- "2" [  weight=0 ];
+
+	"3" [  weight=0 ];
+
+	"3" -- "9" [  weight=0 ];
+
+	"3" -- "2" [  weight=0 ];
+
+	"8" [  weight=0 ];
+
+	"8" -- "9" [  weight=0 ];
+
+	"4" [  weight=0 ];
+
+	"4" -- "5" [  weight=0 ];
+
+	"4" -- "9" [  weight=0 ];
+
+	"5" [  weight=0 ];
+
+	"5" -- "4" [  weight=0 ];
+
+	"1" [  weight=0 ];
+
+	"1" [  weight=0 ];
+
+}
