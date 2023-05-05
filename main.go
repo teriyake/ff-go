@@ -5,16 +5,16 @@ import (
 	"github.com/dominikbraun/graph"
 	"github.com/dominikbraun/graph/draw"
 	_ "github.com/flywave/go3d/quaternion"
-	"github.com/flywave/go3d/vec3"
+	_ "github.com/flywave/go3d/vec3"
 	_ "github.com/fogleman/gg"
 	"github.com/fogleman/ln/ln"
-	"gonum.org/v1/gonum/floats/scalar"
+	_ "gonum.org/v1/gonum/floats/scalar"
 	"gonum.org/v1/gonum/num/quat"
-	_"io/ioutil"
+	_ "io/ioutil"
+	"log"
 	"math"
 	"math/rand"
 	"os"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -45,8 +45,53 @@ type HalfEdge struct {
 	End   ln.Vector
 }
 
+type Matrix4 struct {
+	a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p float64
+}
+
+func (m Matrix4) mulVec(v ln.Vector) ln.Vector {
+	x := m.a*v.X + m.b*v.X + m.c*v.X + m.d*v.X
+	y := m.e*v.Y + m.f*v.Y + m.g*v.Y + m.h*v.Y
+	z := m.i*v.Z + m.j*v.Z + m.k*v.Z + m.l*v.Z
+	return ln.Vector{x, y, z}
+}
+
+type Matrix struct {
+	a, b, c, d, e, f, g, h, i float64
+}
+
+func (m Matrix) Det() float64 {
+	return m.a*(m.e*m.i-m.f*m.h) - m.b*(m.d*m.i-m.g*m.f) + m.c*(m.d*m.h-m.e*m.g)
+}
+
+type Quaternion struct {
+	x, y, z, w float64
+}
+
+func (q Quaternion) toMat4() Matrix4 {
+	x2 := q.x + q.x
+	y2 := q.y + q.y
+	z2 := q.z + q.z
+	xx := q.x * x2
+	xy := q.x * y2
+	xz := q.x * z2
+	yy := q.y * y2
+	yz := q.y * z2
+	zz := q.z * z2
+	wx := q.w * x2
+	wy := q.w * y2
+	wz := q.w * z2
+
+	return Matrix4{1 - (yy + zz), xy - wz, xz + wy, 0, xy + wz, 1 - (xx + zz), yz - wx, 0, xz - wy, yz + wx, 1 - (xx + yy), 0, 0, 0, 0, 1}
+
+}
+
 func printTr(tr ln.Triangle) string {
 	return fmt.Sprintf("%v, %v, %v", tr.V1, tr.V2, tr.V3)
+}
+
+func isCCW(tr ln.Triangle) {
+
 }
 
 func getNormal(v1, v2, v3 ln.Vector) ln.Vector {
@@ -66,6 +111,20 @@ func unitCross(a, b ln.Vector) ln.Vector {
 
 func raise(v Vertex) quat.Number {
 	return quat.Number{Imag: v.V.X, Jmag: v.V.Y, Kmag: v.V.Z}
+}
+
+func qAlign(v1, ref ln.Vector) Quaternion {
+	target := ref.Normalize()
+	axis := v1.Cross(target)
+	l := axis.Length()
+	a := math.Atan2(l, v1.Dot(target))
+	a *= 0.5
+	sin := math.Sin(a)
+	cos := math.Cos(a)
+	mag := axis.Length() / sin
+	qA := ln.Vector{axis.X * mag, axis.Y * mag, axis.Z * mag}
+	q := Quaternion{qA.X, qA.Y, qA.Z, cos}
+	return q
 }
 
 func qRotate(v Vertex, q quat.Number, s float64) Vertex {
@@ -416,8 +475,8 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 			prevTrV = trV
 		} else {
 			fmt.Printf("tr %v not rotated\tsame normal as ref tr: %v\n", trV, prevTrV)
-			tf := fmt.Sprintf("output/tr-%v.png", trV)
-			testRender(trN, tf)
+			//tf := fmt.Sprintf("output/tr-%v.png", trV)
+			//testRender(trN, tf)
 
 			scene.Add(trN)
 			drawn[trV] = true
@@ -454,6 +513,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	mesh.UnitCube()
 	scene.Add(ln.NewTransformedShape(mesh, ln.Rotate(ln.Vector{0, 1, 0}, 0.5)))
 
@@ -509,50 +569,66 @@ func main() {
 	creaseF := "output/" + tsF + "-crease.png"
 	drawCreasePattern3D(dfs, trByV, adjFaces, heByF, creaseF)
 
-	a := vec3.UnitX
-	fmt.Println(a)
-
 	//testing quat rotation
-	alpha := 2 * math.Pi / 3
-	q := raise(Vertex{ln.Vector{1, 1, 1}})
-	scale := 1.0
-	q = quat.Scale(math.Sin(alpha/2)/quat.Abs(q), q)
-	q.Real += math.Cos(alpha / 2)
-
-	sceneT := ln.Scene{}
-	tt := ln.NewCube(ln.Vector{0, 0, 0}, ln.Vector{1, 1, 1})
-	ttt := tt.Paths()
-	var tP []Vertex
-	for _, e := range ttt {
-		for _, v := range e {
-			vN := qRotate(Vertex{v}, q, scale)
-			vN.V.X = scalar.Round(vN.V.X, 2)
-			vN.V.Y = scalar.Round(vN.V.Y, 2)
-			vN.V.Z = scalar.Round(vN.V.Z, 2)
-			fmt.Printf("%+v -> %+v\n", v, vN)
-			tP = append(tP, vN)
+	/*
+		alpha := 2 * math.Pi / 3
+		q := raise(Vertex{ln.Vector{1, 1, 1}})
+		scale := 1.0
+		q = quat.Scale(math.Sin(alpha/2)/quat.Abs(q), q)
+		q.Real += math.Cos(alpha / 2)
+		tt := ln.NewCube(ln.Vector{0, 0, 0}, ln.Vector{1, 1, 1})
+		ttt := tt.Paths()
+		var tP []Vertex
+		for _, e := range ttt {
+			for _, v := range e {
+				vN := qRotate(Vertex{v}, q, scale)
+				vN.V.X = scalar.Round(vN.V.X, 2)
+				vN.V.Y = scalar.Round(vN.V.Y, 2)
+				vN.V.Z = scalar.Round(vN.V.Z, 2)
+				fmt.Printf("%+v -> %+v\n", v, vN)
+				tP = append(tP, vN)
+			}
 		}
-	}
-	tJ := ln.NewTriangle(tP[0].V, tP[3].V, tP[7].V)
-	sceneT.Add(tJ)
-	fmt.Println(tJ.Paths())
-	tA := math.Pi / 1
-	tAxis := tP[3].V.Sub(tP[0].V).MulScalar(2.0)
-	upT := tAxis.Cross(ln.Vector{0, 2, 8})
-	tM := ln.Rotate(tP[3].V.Sub(tP[0].V), tA)
-	tAA := ln.NewTriangle(tAxis, tP[0].V, tP[3].V)
-	transT := ln.NewTransformedShape(tJ, tM)
-	sceneT.Add(transT)
-	sceneT.Add(tAA)
-	fmt.Println(transT.Paths())
-	testF := "output/" + tsF + "-test.png"
-	pathsT := sceneT.Render(eye, center, upT, width, height, fovy, 0.1, 100, 0.01)
-	pathsT.WriteToPNG(testF, width, height)
-
+	*/
+	sceneT := ln.Scene{}
+	/*
+		tJ := ln.NewTriangle(tP[0].V, tP[3].V, tP[7].V)
+		sceneT.Add(tJ)
+		fmt.Println(tJ.Paths())
+		tA := math.Pi / 1
+		tAxis := tP[3].V.Sub(tP[0].V).MulScalar(2.0)
+		upT := tAxis.Cross(ln.Vector{0, 2, 8})
+		tM := ln.Rotate(tP[3].V.Sub(tP[0].V), tA)
+		tAA := ln.NewTriangle(tAxis, tP[0].V, tP[3].V)
+		transT := ln.NewTransformedShape(tJ, tM)
+		sceneT.Add(transT)
+		sceneT.Add(tAA)
+		fmt.Println(transT.Paths())
+	*/
 	if err := tmp.Close(); err != nil {
 		log.Fatal(err)
 	}
 
 	os.Stdout = temp
 	fmt.Println("---------finished----------")
+
+	tJ := ln.NewTriangle(ln.Vector{0, 1, 2}, ln.Vector{0, 1, 1}, ln.Vector{0, 0, 0})
+	sceneT.Add(tJ)
+	testMat := Matrix{1.0, 2.0, 3.0, 0.0, 1.0, 2.3, 1.0, 0.0, 2.0}
+	fmt.Println(testMat.Det())
+	qTest := qAlign(ln.Vector{0, 0, 1}, getNormal(tJ.V1, tJ.V2, tJ.V3))
+	qMat := qTest.toMat4()
+	centroidT := tJ.V1.Add(tJ.V2).Add(tJ.V3).MulScalar(1 / 3)
+	aq := tJ.V1.Sub(centroidT)
+	bq := tJ.V2.Sub(centroidT)
+	cq := tJ.V3.Sub(centroidT)
+	nA := qMat.mulVec(aq)
+	nB := qMat.mulVec(bq)
+	nC := qMat.mulVec(cq)
+	nnn := ln.NewTriangle(nA, nB, nC)
+	sceneT.Add(nnn)
+	testF := "output/" + tsF + "-test.png"
+	pathsT := sceneT.Render(eye, center, up, width, height, fovy, 0.1, 100, 0.01)
+	pathsT.WriteToPNG(testF, width, height)
+
 }
