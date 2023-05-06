@@ -449,8 +449,9 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 		//  use shared E as rAxis
 		// diff rAxis for diff tr? direction...
 		if !contains(adj[prevTrV], trV) {
+			fmt.Println("--------moving to another tree branch-------")
 			for _, adjTrV := range adj[trV] {
-				if (adjTrV == prevTrV) && (drawn[adjTrV]) {
+				if drawn[adjTrV] {
 					fmt.Printf("found: %v--%v\n", trV, adjTrV)
 					prevTrV = adjTrV
 					prevTr = vTr[prevTrV]
