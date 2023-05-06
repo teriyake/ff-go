@@ -440,8 +440,11 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 			//prevTr = tr
 			prevTr = Tr{tr.V1, tr.V2, tr.V3, getNormal(tr.V1, tr.V2, tr.V3)}
 			prevTrV = trV
-			tf := fmt.Sprintf("output/tr-%v.png", trV)
-			testRender(trN, tf)
+			trP := trN.Paths()
+			trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
+			trPB := trP.BoundingBox()
+			fmt.Printf("bounding box: %v\n", trPB)
+			trP.WriteToPNG(fmt.Sprintf("output/r2-tr-%v.png", trV), 1024, 1024)
 			continue
 		}
 
@@ -490,12 +493,15 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 			trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
 			trPB := trP.BoundingBox()
 			fmt.Printf("bounding box: %v\n", trPB)
+			
 			if (math.Signbit(trPB.Min.Z) || math.Signbit(trPB.Max.Z)) && !(math.Signbit(trPB.Min.Z) && math.Signbit(trPB.Max.Z)) {
+				fmt.Printf("trying to fix bounding box...\n")
 				trP = trN.Paths()
+				fmt.Printf("original paths:\n%v\n", trP)
 				trP = trP.Transform(ln.Rotate(rAxis, -2*rA))
 				trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
-
 			}
+		
 			trP.WriteToPNG(fmt.Sprintf("output/r2-tr-%v.png", trV), 1024, 1024)
 
 			fmt.Printf("tr %v drawn at:\n%v\nbounding box: %v\n", trV, trP, trP.BoundingBox())
@@ -507,9 +513,13 @@ func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[in
 		} else {
 			fmt.Printf("tr %v not rotated\tsame normal as ref tr: %v\n", trV, prevTrV)
 			fmt.Printf("tr %v drawn at:\n%v\t%v\t%v\n", trV, trN.V1, trN.V2, trN.V3)
-			//tf := fmt.Sprintf("output/tr-%v.png", trV)
-			//testRender(trN, tf)
 
+			trP := trN.Paths()
+			trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
+			trPB := trP.BoundingBox()
+			fmt.Printf("bounding box: %v\n", trPB)
+			
+			trP.WriteToPNG(fmt.Sprintf("output/r2-tr-%v.png", trV), 1024, 1024)
 			scene.Add(trN)
 			drawn[trV] = true
 			//prevTr = tr
