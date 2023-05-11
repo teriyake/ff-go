@@ -400,6 +400,22 @@ func getRandColor() string {
 	return strconv.FormatInt(int64(r), 16)
 }
 
+func drawCreasePattern2D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
+	dc := gg.NewContext(1000, 1000)
+	dc.SetRGB(0,0,0)
+
+	for i, trV := range dfs {
+		tr := vTr[trV]
+		if i == 0 {
+			// draw at origin
+
+		} else {
+			// get shared edge, find intersection of two circles...
+
+		}
+	}
+}
+
 func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
 	scene := ln.Scene{}
 	sceneQ := ln.Scene{}
