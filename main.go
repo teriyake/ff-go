@@ -1,13 +1,17 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/dominikbraun/graph"
 	"github.com/dominikbraun/graph/draw"
-	"github.com/fogleman/gg"
+	_ "github.com/flywave/go3d/quaternion"
+	_ "github.com/flywave/go3d/vec3"
+	_ "github.com/fogleman/gg"
 	"github.com/fogleman/ln/ln"
-	"io/ioutil"
+	_ "gonum.org/v1/gonum/floats/scalar"
+	"gonum.org/v1/gonum/num/quat"
+	_ "io/ioutil"
+	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -21,6 +25,14 @@ const (
 	H = 1000.0
 )
 
+type Vertex struct {
+	V ln.Vector
+}
+
+type Edge struct {
+	S, E Vertex
+}
+
 type Tr struct {
 	V1     ln.Vector
 	V2     ln.Vector
@@ -33,33 +45,96 @@ type HalfEdge struct {
 	End   ln.Vector
 }
 
-type Edge2D struct {
-	X1 float64 `json:"x1"`
-	Y1 float64 `json:"y1"`
-	X2 float64 `json:"x2"`
-	Y2 float64 `json:"y2"`
-	He HalfEdge
+type Matrix4 struct {
+	a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p float64
 }
 
-type Tr2D struct {
-	E1 Edge2D `json: "e1"`
-	E2 Edge2D `json: "e2"`
-	E3 Edge2D `json: "e3"`
+func (m Matrix4) mulVec(v ln.Vector) ln.Vector {
+	x := m.a*v.X + m.b*v.X + m.c*v.X + m.d*v.X
+	y := m.e*v.Y + m.f*v.Y + m.g*v.Y + m.h*v.Y
+	z := m.i*v.Z + m.j*v.Z + m.k*v.Z + m.l*v.Z
+	return ln.Vector{x, y, z}
+}
+
+type Matrix struct {
+	a, b, c, d, e, f, g, h, i float64
+}
+
+func (m Matrix) Det() float64 {
+	return m.a*(m.e*m.i-m.f*m.h) - m.b*(m.d*m.i-m.g*m.f) + m.c*(m.d*m.h-m.e*m.g)
+}
+
+type Quaternion struct {
+	x, y, z, w float64
+}
+
+func (q Quaternion) toMat4() Matrix4 {
+	x2 := q.x + q.x
+	y2 := q.y + q.y
+	z2 := q.z + q.z
+	xx := q.x * x2
+	xy := q.x * y2
+	xz := q.x * z2
+	yy := q.y * y2
+	yz := q.y * z2
+	zz := q.z * z2
+	wx := q.w * x2
+	wy := q.w * y2
+	wz := q.w * z2
+
+	return Matrix4{1 - (yy + zz), xy - wz, xz + wy, 0, xy + wz, 1 - (xx + zz), yz - wx, 0, xz - wy, yz + wx, 1 - (xx + yy), 0, 0, 0, 0, 1}
+
 }
 
 func printTr(tr ln.Triangle) string {
 	return fmt.Sprintf("%v, %v, %v", tr.V1, tr.V2, tr.V3)
 }
 
+func isCCW(tr ln.Triangle) {
+
+}
+
 func getNormal(v1, v2, v3 ln.Vector) ln.Vector {
 	vA := v2.Add(v1.MulScalar(-1))
 	vB := v3.Add(v1.MulScalar(-1))
-	vN := vA.Cross(vB)
+	vN := vA.Cross(vB).Normalize()
 	return vN
+}
+
+func getAngle2(v1, v2 ln.Vector) float64 {
+	return math.Acos(v1.Dot(v2) / (v1.Length() * v2.Length()))
 }
 
 func unitCross(a, b ln.Vector) ln.Vector {
 	return a.Cross(b).Div((a.Cross(b)).Normalize())
+}
+
+func raise(v Vertex) quat.Number {
+	return quat.Number{Imag: v.V.X, Jmag: v.V.Y, Kmag: v.V.Z}
+}
+
+func qAlign(v1, ref ln.Vector) Quaternion {
+	target := ref.Normalize()
+	axis := v1.Cross(target)
+	l := axis.Length()
+	a := math.Atan2(l, v1.Dot(target))
+	a *= 0.5
+	sin := math.Sin(a)
+	cos := math.Cos(a)
+	mag := axis.Length() / sin
+	qA := ln.Vector{axis.X * mag, axis.Y * mag, axis.Z * mag}
+	q := Quaternion{qA.X, qA.Y, qA.Z, cos}
+	return q
+}
+
+func qRotate(v Vertex, q quat.Number, s float64) Vertex {
+	if l := quat.Abs(q); l != s {
+		q = quat.Scale(math.Sqrt(s)/l, q)
+	}
+
+	vN := quat.Mul(quat.Mul(q, raise(v)), quat.Conj(q))
+
+	return Vertex{ln.Vector{X: vN.Imag, Y: vN.Jmag, Z: vN.Kmag}}
 }
 
 func contains(s []int, v int) bool {
@@ -83,6 +158,7 @@ func removeDups(s []int) []int {
 	return ret
 }
 
+/*
 func getSharedEdge(heTr1, heTr2 []HalfEdge, prevTr Tr2D) (Edge2D, int, []HalfEdge) {
 	var sharedE HalfEdge
 	var usedE []HalfEdge
@@ -119,6 +195,7 @@ func getSharedEdge(heTr1, heTr2 []HalfEdge, prevTr Tr2D) (Edge2D, int, []HalfEdg
 	fmt.Println("unable to find he")
 	return Edge2D{}, -1, []HalfEdge{}
 }
+*/
 
 func parseMesh(m ln.Mesh) ([]Tr, map[ln.Vector]int, map[Tr]int, map[int]Tr, map[HalfEdge]int, map[int][]HalfEdge) {
 	var triangles []Tr
@@ -196,12 +273,6 @@ func getAngleTr(tr Tr, n int) float64 {
 	angles := getAnglesTr(tr)
 
 	return angles[n-1]
-}
-
-func getXY(oX, oY float64, a float64, l float64) (float64, float64) {
-	x := math.Cos(a)*l + oX
-	y := math.Sin(a)*l + oY
-	return x, y
 }
 
 func rrrrrotateTr(tr Tr, ref ln.Vector, rAngle float64) *ln.Triangle {
@@ -329,230 +400,180 @@ func getRandColor() string {
 	return strconv.FormatInt(int64(r), 16)
 }
 
-func drawCreasePattern(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
-	var jsonTrs []Tr2D
-	jsonF := f + ".json"
+func drawCreasePattern2D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
+	dc := gg.NewContext(1000, 1000)
+	dc.SetRGB(0,0,0)
 
-	dc := gg.NewContext(W, H)
-	dc.DrawRectangle(0, 0, W, H)
-	dc.SetHexColor("#FFFFFF")
-	dc.Fill()
-
-	scaleF := math.Min(W, H) / 23
-	startX := W / 4
-	startY := H / 4
-	var x1, y1, x2, y2 float64
-	drawn := make(map[int]Tr2D)
-	availableE := make(map[HalfEdge]bool)
-	var prevTr Tr2D
-	prevF := false
-
-	for i, tr := range dfs {
-		nn := 2
-		trC := vTr[tr]
-		trCe1 := trC.V2.Sub(trC.V1)
-		trCe2 := trC.V3.Sub(trC.V2)
-		trCe3 := trC.V1.Sub(trC.V3)
-
+	for i, trV := range dfs {
+		tr := vTr[trV]
 		if i == 0 {
-			x1 = float64(startX)
-			y1 = float64(startY)
-			x2 = x1 - trCe1.Length()*scaleF
-			y2 = y1
-			// just draw; no need to check for half edges etc.
+			// draw at origin
+
 		} else {
-			for _, adj := range adj[tr] {
-				if v, ok := drawn[adj]; ok {
-					prevTr = v
-					fmt.Printf("adj found: %v--%v\n", tr, adj)
-					break
-				}
-			}
+			// get shared edge, find intersection of two circles...
 
-			heTr1A := he[tr]
-			heTr2A := []HalfEdge{prevTr.E1.He, prevTr.E2.He, prevTr.E3.He}
-			var heTr1 []HalfEdge
-			var heTr2 []HalfEdge
-			for _, ee := range heTr1A {
-				if a, ok := availableE[ee]; a || !ok {
-					if !ok {
-						availableE[ee] = true
-					}
-					heTr1 = append(heTr1, ee)
-				}
-			}
-			for _, e := range heTr2A {
-				if a, ok := availableE[e]; a || !ok {
-
-					if !ok {
-						availableE[e] = true
-					}
-					heTr2 = append(heTr2, e)
-				}
-			}
-			fmt.Printf("--------updated he---------\ntr1: %v\ntr2: %v\n", heTr1, heTr2)
-			sharedE, n, usedE := getSharedEdge(heTr1, heTr2, prevTr)
-			x1 = sharedE.X1
-			y1 = sharedE.Y1
-			x2 = sharedE.X2
-			y2 = sharedE.Y2
-			nn = n
-			fmt.Printf("--------used he------------\n%v\t%v\n", usedE[0], usedE[1])
-			availableE[usedE[0]] = false
-			availableE[usedE[1]] = false
-			//fmt.Printf("--------updated map--------\n%v\n", availableE)
-
-			// now draw
-			fmt.Printf("--------shared edge---------\n%v: %v\n", nn, sharedE)
 		}
-		//draw
-		//a12, a12D := getAngle(trCe1, trCe2)
-
-		a := getAngleTr(trC, nn)
-		fmt.Printf("angle: %v\n", a*180/math.Pi)
-
-		r := 0.0
-		if nn == 1 {
-			r = trCe2.Length() * scaleF
-		} else if nn == 2 {
-			r = trCe3.Length() * scaleF
-		} else if nn == 3 {
-			r = trCe1.Length() * scaleF
-		}
-		x3, y3 := getXY(x2, y2, a, r)
-		if prevF {
-			x3, y3 = getXY(x1, y1, a, r)
-			prevF = false
-		}
-		fmt.Printf("side length: %v\n", r)
-
-		color := getRandColor()
-
-		dc.SetHexColor(color)
-		dc.DrawLine(x1, y1, x2, y2)
-		dc.Stroke()
-		dc.SetHexColor(color)
-		dc.DrawLine(x2, y2, x3, y3)
-		dc.Stroke()
-		dc.SetHexColor(color)
-		dc.DrawLine(x3, y3, x1, y1)
-		dc.Stroke()
-
-		// update prevTr
-		he1 := HalfEdge{trC.V1, trC.V2}
-		he2 := HalfEdge{trC.V2, trC.V3}
-		he3 := HalfEdge{trC.V3, trC.V1}
-		drawnTr := Tr2D{Edge2D{x1, y1, x2, y2, he1}, Edge2D{x2, y2, x3, y3, he2}, Edge2D{x3, y3, x1, y1, he3}}
-		drawn[tr] = drawnTr
-		prevTr = drawnTr
-
-		fmt.Printf("tr %v drawn at:\n%v\n%v\n%v\n", tr, drawnTr.E1, drawnTr.E2, drawnTr.E3)
-		fmt.Println()
-
-		jsonTrs = append(jsonTrs, drawnTr)
 	}
-
-	jF, _ := json.MarshalIndent(jsonTrs, "", " ")
-	_ = ioutil.WriteFile(jsonF, jF, 0644)
-	dc.SavePNG(f)
 }
 
 func drawCreasePattern3D(dfs []int, vTr map[int]Tr, adj map[int][]int, he map[int][]HalfEdge, f string) {
 	scene := ln.Scene{}
+	sceneQ := ln.Scene{}
 
 	//trPrv := ln.NewTriangle(refT.V1, refT.V2, refT.V3)
 	drawn := make(map[int]bool)
 
 	// another idea:
 	// make a map; each time something rotates, add it to the map; each rotation is done after checking the map & get updated position if necessary
-	rotations := make(map[Tr]float64)
 
 	prevTrV := dfs[0]
 	prevTr := vTr[prevTrV]
 	for i, trV := range dfs {
+		tr := vTr[trV]
+
+		q := qAlign(ln.Vector{0, 0, 1}, tr.Normal)
+		qMat := q.toMat4()
+		centroidT := tr.V1.Add(tr.V2).Add(tr.V3).MulScalar(1 / 3)
+		aq := tr.V1.Sub(centroidT)
+		bq := tr.V2.Sub(centroidT)
+		cq := tr.V3.Sub(centroidT)
+		nA := qMat.mulVec(aq)
+		nB := qMat.mulVec(bq)
+		nC := qMat.mulVec(cq)
+		nnn := ln.NewTriangle(nA, nB, nC)
+		sceneQ.Add(nnn)
+
 		if _, ok := drawn[trV]; ok {
 			continue
 		}
-		tr := vTr[trV]
+
+		fmt.Printf("-----drawing tr %v--------\n", trV)
+		if i == 0 {
+
+			trN := ln.NewTriangle(tr.V1, tr.V2, tr.V3)
+			scene.Add(trN)
+			drawn[trV] = true
+			//prevTr = tr
+			prevTr = Tr{tr.V1, tr.V2, tr.V3, getNormal(tr.V1, tr.V2, tr.V3)}
+			prevTrV = trV
+			trP := trN.Paths()
+			trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
+			trPB := trP.BoundingBox()
+			fmt.Printf("bounding box: %v\n", trPB)
+			trP.WriteToPNG(fmt.Sprintf("output/r2-tr-%v.png", trV), 1024, 1024)
+			continue
+		}
 
 		// draw
 		//  use shared E as rAxis
 		// diff rAxis for diff tr? direction...
-		if tr != prevTr {
-			heTr1 := he[trV]
-			heTr2 := he[prevTrV]
-			var sharedE HalfEdge
-			intersectM := make(map[HalfEdge]bool)
-			for _, he1 := range heTr1 {
-				intersectM[he1] = true
-			}
-			for _, he2 := range heTr2 {
-				heC := HalfEdge{he2.End, he2.Start}
-				if _, ok := intersectM[heC]; ok {
-					sharedE = heC
+		if !contains(adj[prevTrV], trV) {
+			fmt.Println("--------moving to another tree branch-------")
+			for _, adjTrV := range adj[trV] {
+				if drawn[adjTrV] {
+					fmt.Printf("found: %v--%v\n", trV, adjTrV)
+					prevTrV = adjTrV
+					prevTr = vTr[prevTrV]
 					break
 				}
 			}
-			fmt.Println(sharedE)
 		}
-
-		fmt.Printf("tr %v: %v\tref tr %v: %v\n", trV, tr, prevTrV, prevTr)
+		heTr1 := he[trV]
+		heTr2 := he[prevTrV]
+		var sharedE HalfEdge
+		intersectM := make(map[HalfEdge]bool)
+		for _, he1 := range heTr1 {
+			intersectM[he1] = true
+		}
+		for _, he2 := range heTr2 {
+			heC := HalfEdge{he2.End, he2.Start}
+			if _, ok := intersectM[heC]; ok {
+				sharedE = heC
+				break
+			}
+		}
+		fmt.Println(sharedE)
 
 		trN := ln.NewTriangle(tr.V1, tr.V2, tr.V3)
 		// check angle between tr1 & prev tr2
 		if tr.Normal != prevTr.Normal {
-			// check if tr is adjacent to prevtr
-			if !contains(adj[trV], prevTrV) {
-				// traverse adj to find the last rotated adj tr??
-				for j := i; j >= 0; j-- {
-					if contains(adj[trV], dfs[j]) {
-						prevTr = vTr[dfs[j]]
-						prevTrV = dfs[j]
-						break
-					}
-				}
-				fmt.Printf("new ref tr %v: %v\n", prevTr, prevTrV)
+			rA := getAngle2(tr.Normal, prevTr.Normal)
+			rAxis := tr.Normal.Cross(prevTr.Normal).Normalize()
+			rMat := ln.Rotate(rAxis, rA)
+			trR := ln.NewTransformedShape(trN, rMat)
+			fmt.Printf("tr %v rotated by %v\tref tr %v\n", trV, rA*180/math.Pi, prevTrV)
+
+			// try method 2
+			trP := trN.Paths()
+			trP = trP.Transform(ln.Rotate(rAxis, rA))
+			trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
+			trPB := trP.BoundingBox()
+			fmt.Printf("bounding box: %v\n", trPB)
+			
+			if (math.Signbit(trPB.Min.Z) || math.Signbit(trPB.Max.Z)) && !(math.Signbit(trPB.Min.Z) && math.Signbit(trPB.Max.Z)) {
+				fmt.Printf("trying to fix bounding box...\n")
+				trP = trN.Paths()
+				fmt.Printf("original paths:\n%v\n", trP)
+				trP = trP.Transform(ln.Rotate(rAxis, -2*rA))
+				trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
 			}
-			trA, trAD := getAngle(prevTr.Normal, tr.Normal)
-			rotations[tr] = trAD
-			trN = rotateTr(tr, prevTr.Normal, trA)
-			//tr1N = translateTr(tr1N, ln.RandomUnitVector())
-			fmt.Printf("tr %v rotated by: %v\tref tr: %v\n", trV, trAD, prevTrV)
-			fmt.Printf("new tr %v: %v\n", trV, trN)
+		
+			trP.WriteToPNG(fmt.Sprintf("output/r2-tr-%v.png", trV), 1024, 1024)
 
-			//fmt.Printf("tr %v not rotated\tref tr: %v\n", trV, prevTrV)
-
+			fmt.Printf("tr %v drawn at:\n%v\nbounding box: %v\n", trV, trP, trP.BoundingBox())
+			scene.Add(trR)
+			drawn[trV] = true
+			//prevTr = tr
+			prevTr = Tr{trN.V1, trN.V2, trN.V3, getNormal(trN.V1, trN.V2, trN.V3)}
+			prevTrV = trV
 		} else {
 			fmt.Printf("tr %v not rotated\tsame normal as ref tr: %v\n", trV, prevTrV)
+			fmt.Printf("tr %v drawn at:\n%v\t%v\t%v\n", trV, trN.V1, trN.V2, trN.V3)
+
+			trP := trN.Paths()
+			trP = trP.Transform(ln.Scale(ln.Vector{1024 / 3, 1024 / 3, 1}).Translate(ln.Vector{1024 / 4, 1024 / 4, 0}))
+			trPB := trP.BoundingBox()
+			fmt.Printf("bounding box: %v\n", trPB)
+			
+			trP.WriteToPNG(fmt.Sprintf("output/r2-tr-%v.png", trV), 1024, 1024)
+			scene.Add(trN)
+			drawn[trV] = true
+			//prevTr = tr
+			prevTr = Tr{trN.V1, trN.V2, trN.V3, getNormal(trN.V1, trN.V2, trN.V3)}
+			prevTrV = trV
 		}
 
-		tf := fmt.Sprintf("output/tr-%v.png", trV)
-		testRender(trN, tf)
-
-		scene.Add(trN)
-		drawn[trV] = true
-		//prevTr = tr
-		prevTr = Tr{trN.V1, trN.V2, trN.V3, getNormal(trN.V1, trN.V2, trN.V3)}
-		prevTrV = trV
 	}
 
-	eye := ln.Vector{3, 3, 3}
+	eye := ln.Vector{2, 6, 1}
 	center := ln.Vector{0, 0, 0}
 	up := ln.Vector{0, 1, 0}
 	width := 1024.0
 	height := 1024.0
 	paths := scene.Render(eye, center, up, width, height, 50, 0.1, 100, 0.01)
 	paths.WriteToPNG(f, width, height)
-
-	fmt.Println(rotations)
+	pathsQ := sceneQ.Render(ln.Vector{5, -4, 9}, center, up, width, height, 50, 0.1, 100, 0.01)
+	pathsQ.WriteToPNG(f+"-quat.png", width, height)
 }
 
 func main() {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	tsF := strings.Replace(strings.Replace(ts, ":", "", -1), "-", "", -1)
+
+	logF := "logs/" + tsF + "-log" + ".txt"
+	tmp, err := os.OpenFile(logF, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	temp := os.Stdout
+	os.Stdout = tmp
+
 	scene := ln.Scene{}
 	mesh, err := ln.LoadOBJ("input/cube.obj")
 	if err != nil {
 		panic(err)
 	}
+
 	mesh.UnitCube()
 	scene.Add(ln.NewTransformedShape(mesh, ln.Rotate(ln.Vector{0, 1, 0}, 0.5)))
 
@@ -572,8 +593,6 @@ func main() {
 	paths := scene.Render(eye, center, up, width, height, fovy, znear, zfar, step)
 
 	// render the paths in an image
-	ts := time.Now().UTC().Format(time.RFC3339)
-	tsF := strings.Replace(strings.Replace(ts, ":", "", -1), "-", "", -1)
 	meshF := "output/" + tsF + "-mesh.png"
 	paths.WriteToPNG(meshF, width, height)
 
@@ -608,6 +627,48 @@ func main() {
 	fmt.Println()
 
 	creaseF := "output/" + tsF + "-crease.png"
-	drawCreasePattern(dfs, trByV, adjFaces, heByF, creaseF)
+	drawCreasePattern3D(dfs, trByV, adjFaces, heByF, creaseF)
+
+	//testing quat rotation
+	/*
+		alpha := 2 * math.Pi / 3
+		q := raise(Vertex{ln.Vector{1, 1, 1}})
+		scale := 1.0
+		q = quat.Scale(math.Sin(alpha/2)/quat.Abs(q), q)
+		q.Real += math.Cos(alpha / 2)
+		tt := ln.NewCube(ln.Vector{0, 0, 0}, ln.Vector{1, 1, 1})
+		ttt := tt.Paths()
+		var tP []Vertex
+		for _, e := range ttt {
+			for _, v := range e {
+				vN := qRotate(Vertex{v}, q, scale)
+				vN.V.X = scalar.Round(vN.V.X, 2)
+				vN.V.Y = scalar.Round(vN.V.Y, 2)
+				vN.V.Z = scalar.Round(vN.V.Z, 2)
+				fmt.Printf("%+v -> %+v\n", v, vN)
+				tP = append(tP, vN)
+			}
+		}
+	*/
+	/*
+		tJ := ln.NewTriangle(tP[0].V, tP[3].V, tP[7].V)
+		sceneT.Add(tJ)
+		fmt.Println(tJ.Paths())
+		tA := math.Pi / 1
+		tAxis := tP[3].V.Sub(tP[0].V).MulScalar(2.0)
+		upT := tAxis.Cross(ln.Vector{0, 2, 8})
+		tM := ln.Rotate(tP[3].V.Sub(tP[0].V), tA)
+		tAA := ln.NewTriangle(tAxis, tP[0].V, tP[3].V)
+		transT := ln.NewTransformedShape(tJ, tM)
+		sceneT.Add(transT)
+		sceneT.Add(tAA)
+		fmt.Println(transT.Paths())
+	*/
+	if err := tmp.Close(); err != nil {
+		log.Fatal(err)
+	}
+
+	os.Stdout = temp
+	fmt.Println("---------finished----------")
 
 }
